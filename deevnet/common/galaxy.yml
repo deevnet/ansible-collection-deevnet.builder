@@ -1,0 +1,48 @@
+namespace: deevnet
+name: common
+version: 0.1.0
+readme: README.md
+authors:
+  - "Chris Deever <ansible@deevnet.com>"
+
+description: >
+  Baseline roles and utilities for servers and workstations:
+  users/groups, hardening, admin tools, and exporters (e.g., node_exporter).
+
+license: MIT
+license_file: LICENSE
+
+repository: https://github.com/deevnet/ansible-collection-deevnet.common
+homepage: https://github.com/deevnet/ansible-collection-deevnet.common
+documentation: https://github.com/deevnet/ansible-collection-deevnet.common#readme
+issues: https://github.com/deevnet/ansible-collection-deevnet.common/issues
+
+# Set to whatever you're targeting—2.15+ is a good modern baseline
+# (bump if you use newer features/filters).
+tags:
+  - common
+  - baseline
+  - hardening
+  - users
+  - linux
+  - exporters
+  - node_exporter
+  - devops
+  - infrastructure
+
+dependencies: {}   # Keep empty unless you truly require another collection
+build_ignore:
+  - ".gitignore"
+  - ".gitattributes"
+  - ".github/"
+  - ".vscode/"
+  - ".devcontainer/"
+  - "*.code-workspace"
+  - "docs/_site/"
+  - "CONTRIBUTING.md"
+  - "CODE_OF_CONDUCT.md"
+
+# Execution/runtime compatibility (optional but helpful)
+# Adjust these to match what you support.
+# min_ansible_version is specified via meta/runtime.yml, but leaving a note here:
+# See: deevnet/common/meta/runtime.yml
