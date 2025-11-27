@@ -1,0 +1,27 @@
+---
+# roles/nginx_artifacts/tasks/main.yml
+
+- name: Ensure base artifacts root exists
+  ansible.builtin.file:
+    path: /srv/artifacts
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Ensure nginx artifacts web root exists
+  ansible.builtin.file:
+    path: /srv/artifacts/www
+    state: directory
+    owner: nginx
+    group: nginx
+    mode: "0755"
+
+- name: Ensure nginx log directory for artifacts exists
+  ansible.builtin.file:
+    path: /var/log/nginx/artifacts
+    state: directory
+    owner: nginx
+    group: nginx
+    mode: "0755"
+
