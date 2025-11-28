@@ -1,27 +1,60 @@
 ---
 # roles/nginx_artifacts/tasks/main.yml
 
-- name: Ensure base artifacts root exists
+- name: Ensure artifacts root directory exists
   ansible.builtin.file:
-    path: /srv/artifacts
+    path: "{{ nginx_artifacts_root }}"
     state: directory
+    owner: "{{ nginx_user | default('nginx') }}"
+    group: "{{ nginx_group | default('nginx') }}"
+    mode: "0755"
+  become: true
+
+- name: Ensure base directory tree exists
+  ansible.builtin.file:
+    path: "{{ nginx_artifacts_root }}/{{ item }}"
+    state: directory
+    owner: "{{ nginx_user | default('nginx') }}"
+    group: "{{ nginx_group | default('nginx') }}"
+    mode: "0755"
+  loop: "{{ nginx_artifacts_dirs }}"
+  become: true
+
+# --- SELinux: allow nginx to read /srv/dvntm-http on Fedora/RHEL ---
+
+- name: Ensure semanage is installed (for SELinux fcontext management)
+  ansible.builtin.package:
+    name: policycoreutils-python-utils
+    state: present
+  when:
+    - ansible_selinux is defined
+    - ansible_selinux.status == "enabled"
+  become: true
+
+- name: Ensure SELinux context rule for artifacts root is present
+  ansible.builtin.command: >
+    semanage fcontext -a -t httpd_sys_content_t '{{ nginx_artifacts_root }}(/.*)?'
+  register: semanage_result
+  failed_when: semanage_result.rc not in [0, 1]
+  changed_when: semanage_result.rc == 0      # rc==1 means "already defined"
+  when:
+    - ansible_selinux is defined
+    - ansible_selinux.status == "enabled"
+  become: true
+
+- name: Apply SELinux context to artifacts root
+  ansible.builtin.command: "restorecon -Rv {{ nginx_artifacts_root }}"
+  when:
+    - ansible_selinux is defined
+    - ansible_selinux.status == "enabled"
+  become: true
+
+- name: Deploy nginx artifacts site config
+  ansible.builtin.template:
+    src: artifacts_site.conf.j2
+    dest: "{{ nginx_artifacts_conf_path }}"
     owner: root
     group: root
-    mode: "0755"
-
-- name: Ensure nginx artifacts web root exists
-  ansible.builtin.file:
-    path: /srv/artifacts/www
-    state: directory
-    owner: nginx
-    group: nginx
-    mode: "0755"
-
-- name: Ensure nginx log directory for artifacts exists
-  ansible.builtin.file:
-    path: /var/log/nginx/artifacts
-    state: directory
-    owner: nginx
-    group: nginx
-    mode: "0755"
-
+    mode: "0644"
+  notify: reload nginx
+  become: true

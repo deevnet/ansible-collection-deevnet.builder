@@ -1,0 +1,15 @@
+server {
+    listen {{ nginx_artifacts_listen_port }}{% if nginx_artifacts_default_server | bool %} default_server{% endif %};
+    server_name {{ nginx_artifacts_server_name }};
+
+    access_log /var/log/nginx/{{ nginx_artifacts_site_name }}.access.log;
+    error_log  /var/log/nginx/{{ nginx_artifacts_site_name }}.error.log;
+
+    root {{ nginx_artifacts_root }};
+    autoindex on;
+
+    location / {
+        autoindex on;
+        try_files $uri $uri/ =404;
+    }
+}

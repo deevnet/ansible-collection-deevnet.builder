@@ -1,0 +1,15 @@
+---
+# Main entry point for the artifact_fetch role
+
+- name: Ensure artifacts root exists
+  ansible.builtin.file:
+    path: "{{ nginx_artifacts_root }}"
+    state: directory
+    mode: "0755"
+  become: true
+
+- name: Process requested artifacts
+  ansible.builtin.include_tasks: "fetch_{{ artifact_item.type }}.yml"
+  loop: "{{ artifacts_to_fetch }}"
+  loop_control:
+    loop_var: artifact_item

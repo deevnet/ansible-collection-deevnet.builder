@@ -1,0 +1,17 @@
+---
+# Generic file download with optional sha256 validation
+
+- name: Ensure destination directory exists
+  ansible.builtin.file:
+    path: "{{ nginx_artifacts_root }}/{{ artifact_item.dest_subdir }}"
+    state: directory
+    mode: "0755"
+  become: true
+
+- name: Download artifact {{ artifact_item.name }}
+  ansible.builtin.get_url:
+    url: "{{ artifact_item.url }}"
+    dest: "{{ nginx_artifacts_root }}/{{ artifact_item.dest_subdir }}/{{ artifact_item.dest_filename }}"
+    mode: "0644"
+    checksum: "{{ 'sha256:' + artifact_item.sha256 if artifact_item.sha256 is defined else omit }}"
+  become: true

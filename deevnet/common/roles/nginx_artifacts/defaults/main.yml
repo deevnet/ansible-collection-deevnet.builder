@@ -1,0 +1,38 @@
+---
+# Root directory for all HTTP-served files
+nginx_artifacts_root: /srv/dvntm-http
+
+# Directory tree we want
+nginx_artifacts_dirs:
+  - iso
+  - iso/fedora
+  - pi-images
+  - keys
+  - keys/ssh
+  - keys/gpg
+  - misc
+
+
+# Vhost settings
+# ------------------------------------------------------------------------------
+# VHOST NOTE:
+#
+# By default, nginx_artifacts_server_name is set to "_" so that the artifacts
+# site works immediately via http://<IP>/ using the default_server flag.
+#
+# When DNS is introduced (e.g., artifacts.dvntm.deevnet.net), override:
+#
+#   nginx_artifacts_server_name: "artifacts.dvntm.deevnet.net"
+#
+# in group_vars or host_vars for the artifact host.
+#
+# Do NOT change the default here; keep the role generic.
+# ------------------------------------------------------------------------------
+nginx_artifacts_server_name: "_"
+nginx_artifacts_listen_port: 80
+nginx_artifacts_default_server: true
+
+# Fedora / RHEL nginx layout
+nginx_conf_dir: /etc/nginx
+nginx_artifacts_conf_path: "{{ nginx_conf_dir }}/conf.d/artifacts.conf"
+nginx_artifacts_site_name: artifacts

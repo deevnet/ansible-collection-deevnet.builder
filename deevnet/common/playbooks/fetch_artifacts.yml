@@ -1,0 +1,7 @@
+---
+- name: Fetch and publish artifacts on admin (artifact) servers
+  hosts: admin
+  become: true
+
+  roles:
+    - artifact_fetch

@@ -1,49 +1,28 @@
 ---
-- name: Debug dev_users (inside role)
-  ansible.builtin.debug:
-    var: dev_users
-
-- name: Ensure primary groups for dev users exist
-  ansible.builtin.group:
-    name: "{{ user.primary_group | default(user.name) }}"
+- name: Install nginx
+  ansible.builtin.dnf:
+    name: nginx
     state: present
-  loop: "{{ dev_users | default([]) }}"
-  loop_control:
-    loop_var: user
 
-- name: Ensure dev users exist
-  ansible.builtin.user:
-    name: "{{ user.name }}"
-    group: "{{ user.primary_group | default(user.name) }}"
-    groups: "{{ user.extra_groups | default([]) }}"
-    append: true
-    shell: "{{ user.shell | default('/bin/bash') }}"
-    create_home: true
-    state: present
-  loop: "{{ dev_users | default([]) }}"
-  loop_control:
-    loop_var: user
+- name: Gather service facts (for firewalld detection)
+  ansible.builtin.service_facts:
 
-- name: Ensure .ssh directory exists for dev users
-  ansible.builtin.file:
-    path: "{{ user.home | default('/home/' + user.name) }}/.ssh"
-    state: directory
-    owner: "{{ user.name }}"
-    group: "{{ user.primary_group | default(user.name) }}"
-    mode: '0700'
-  loop: "{{ dev_users | default([]) }}"
-  loop_control:
-    loop_var: user
+- name: Open HTTP/HTTPS in firewalld when running
+  ansible.posix.firewalld:
+    service: "{{ item }}"
+    permanent: true
+    state: enabled
+    immediate: true
+  loop:
+    - http
+    - https
+  when:
+    - "'firewalld.service' in ansible_facts.services"
+    - ansible_facts.services['firewalld.service'].state == 'running'
+  become: true
 
-- name: Install authorized_keys for dev users from URL (GitHub or other)
-  ansible.builtin.get_url:
-    url: "{{ user.github_keys_url }}"
-    dest: "{{ user.home | default('/home/' + user.name) }}/.ssh/authorized_keys"
-    owner: "{{ user.name }}"
-    group: "{{ user.primary_group | default(user.name) }}"
-    mode: '0600'
-  when: user.github_keys_url is defined
-  loop: "{{ dev_users | default([]) }}"
-  loop_control:
-    loop_var: user
-
+- name: Enable and start nginx
+  ansible.builtin.service:
+    name: nginx
+    enabled: true
+    state: started
