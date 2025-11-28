@@ -4,6 +4,28 @@
     name: ansible
     state: present
 
+# --- HashiCorp Terraform + Packer install (Fedora/RHEL family) ---
+- name: Ensure HashiCorp repository for Terraform/Packer is configured
+  ansible.builtin.yum_repository:
+    name: hashicorp
+    description: "HashiCorp Stable - $basearch"
+    baseurl: "https://rpm.releases.hashicorp.com/fedora/$releasever/$basearch/stable"
+    enabled: yes
+    gpgcheck: yes
+    repo_gpgcheck: yes
+    gpgkey: "https://rpm.releases.hashicorp.com/gpg"
+  when: ansible_os_family == "RedHat"
+  become: true
+
+- name: Install Terraform and Packer via DNF
+  ansible.builtin.package:
+    name:
+      - terraform
+      - packer
+    state: present
+  when: ansible_os_family == "RedHat"
+  become: true
+
 - name: Create workspace directory
   file:
     path: /opt/dvnt
