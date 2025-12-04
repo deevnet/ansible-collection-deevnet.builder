@@ -8,10 +8,29 @@
     mode: "0755"
   become: true
 
+- name: Check if artifact {{ artifact_item.name }} already exists
+  ansible.builtin.stat:
+    path: "{{ nginx_artifacts_root }}/{{ artifact_item.dest_subdir }}/{{ artifact_item.dest_filename }}"
+    checksum_algorithm: "{{ 'sha256' if artifact_item.sha256 is defined else omit }}"
+  register: artifact_stat
+  become: true
+
 - name: Download artifact {{ artifact_item.name }}
   ansible.builtin.get_url:
     url: "{{ artifact_item.url }}"
     dest: "{{ nginx_artifacts_root }}/{{ artifact_item.dest_subdir }}/{{ artifact_item.dest_filename }}"
     mode: "0644"
     checksum: "{{ 'sha256:' + artifact_item.sha256 if artifact_item.sha256 is defined else omit }}"
+    # If the file exists but checksum doesn't match, force re-download
+    force: "{{ artifact_stat.stat.exists
+              and artifact_item.sha256 is defined
+              and artifact_stat.stat.checksum is defined
+              and artifact_stat.stat.checksum != artifact_item.sha256 }}"
   become: true
+  when: >
+    (not artifact_stat.stat.exists)
+    or (artifact_item.sha256 is defined
+        and artifact_stat.stat.checksum is defined
+        and artifact_stat.stat.checksum != artifact_item.sha256)
+
+

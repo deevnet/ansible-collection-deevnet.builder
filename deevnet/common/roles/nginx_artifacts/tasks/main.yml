@@ -58,3 +58,10 @@
     mode: "0644"
   notify: reload nginx
   become: true
+
+- name: Publish SSH key artifacts
+  ansible.builtin.include_tasks: publish_ssh_keys.yml
+  loop: "{{ artifacts_ssh_keys | default([]) }}"
+  loop_control:
+    loop_var: artifact_item
+    label: "{{ artifact_item.name }}"
