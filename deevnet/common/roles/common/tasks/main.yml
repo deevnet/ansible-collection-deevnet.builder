@@ -4,12 +4,35 @@
   ansible.builtin.hostname:
     name: "{{ hostname | default(inventory_hostname) }}"
 
-- name: Ensure base packages are present
+- name: Install baseline system packages
   become: true
   ansible.builtin.dnf:
     name:
-      - git
-      - vim
-      - tmux
+      - vim-minimal
+      - nano
+      - less
+      - tar
+      - unzip
+      - rsync
+      - curl
+      - wget
+      - bind-utils
+      - iproute
+      - tcpdump
       - htop
+      - sysstat
+      - lsof
+      - strace
+      - lvm2
+      - xfsprogs
+      - e2fsprogs
+      - ca-certificates
+      - openssl
+      - gnupg2
+      - python3
+      - python3-libselinux
+      - python3-dnf
+      - policycoreutils
+      - policycoreutils-python-utils
+      - chrony
     state: present
