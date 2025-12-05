@@ -1,0 +1,27 @@
+namespace: deevnet
+name: builder
+version: 1.0.0
+readme: README.md
+authors:
+  - Chris Deever
+license: MIT
+tags:
+  - ansible
+  - infrastructure
+  - provisioning
+  - packer
+  - terraform
+  - pxe
+  - tftp
+  - nginx
+  - linux
+  - automation
+  - baremetal
+  - virtual
+description: >
+  Roles for building and bootstrapping infrastructure across physical,
+  virtual, and embedded platforms. Includes developer host setup, image
+  builder configuration, artifact hosting, and PXE provisioning—providing
+  a complete toolkit for exploring Infrastructure as Code workflows with
+  Ansible, Packer, Terraform, nginx, and TFTP.
+dependencies: {}
