@@ -1,0 +1,9 @@
+---
+- name: Deploy users
+  ansible.builtin.import_tasks: deploy_users.yml
+
+- name: Install dev tools
+  ansible.builtin.import_tasks: dev_tools.yml
+
+- name: Install AI tools
+  ansible.builtin.import_tasks: ai_tools.yml

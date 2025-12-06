@@ -1,4 +1,8 @@
 ---
+# Default list of artifacts to fetch if none is provided via inventory.
+# Normally overridden in group_vars for builder hosts.
+artifacts_to_fetch: []
+
 # Root directory for all HTTP-served files
 nginx_artifacts_root: /srv/dvntm-http
 

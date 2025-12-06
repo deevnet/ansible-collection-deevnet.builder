@@ -1,4 +1,3 @@
----
 - name: Debug dev_users (inside role)
   ansible.builtin.debug:
     var: dev_users
@@ -46,4 +45,3 @@
   loop: "{{ dev_users | default([]) }}"
   loop_control:
     loop_var: user
-

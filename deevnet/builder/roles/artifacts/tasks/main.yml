@@ -1,0 +1,17 @@
+---
+# roles/artifacts/tasks/main.yml
+
+- name: Install nginx
+  ansible.builtin.include_tasks: install_nginx.yml
+
+- name: Configure nginx
+  ansible.builtin.include_tasks: configure_nginx.yml
+
+- name: Fetch artifacts
+  ansible.builtin.include_tasks: fetch_artifacts.yml
+
+- name: Publish SSH keys
+  ansible.builtin.include_tasks: publish_ssh_keys.yml
+  loop: "{{ artifacts_ssh_keys }}"
+  loop_control:
+    loop_var: artifact_item

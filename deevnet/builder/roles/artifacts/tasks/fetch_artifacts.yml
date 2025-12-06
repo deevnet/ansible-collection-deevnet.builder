@@ -1,6 +1,4 @@
 ---
-# Main entry point for the artifact_fetch role
-
 - name: Ensure artifacts root exists
   ansible.builtin.file:
     path: "{{ nginx_artifacts_root }}"

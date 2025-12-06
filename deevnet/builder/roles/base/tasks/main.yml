@@ -4,6 +4,12 @@
   ansible.builtin.hostname:
     name: "{{ hostname | default(inventory_hostname) }}"
 
+- name: Ensure Ansible is installed
+  become: true
+  package:
+    name: ansible
+    state: present
+
 - name: Install baseline system packages
   become: true
   ansible.builtin.dnf:
