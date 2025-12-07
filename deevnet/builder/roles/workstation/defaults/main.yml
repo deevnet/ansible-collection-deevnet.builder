@@ -1,3 +1,23 @@
 ---
 # No default users — host_vars or group_vars should define dev_users.
 dev_users: []
+
+# HashiCorp repository configuration
+hashicorp_repo_baseurl: "https://rpm.releases.hashicorp.com/fedora/$releasever/$basearch/stable"
+hashicorp_repo_gpgkey: "https://rpm.releases.hashicorp.com/gpg"
+hashicorp_repo_enabled: true
+hashicorp_repo_gpgcheck: true
+hashicorp_repo_repo_gpgcheck: true
+
+# HashiCorp packages to install
+hashicorp_packages:
+  - terraform
+  - packer
+
+# General dev tool packages
+dev_tool_packages:
+  - git
+  - vim
+  - tmux
+  - golang
+  - nmap-ncat

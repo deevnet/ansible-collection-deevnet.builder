@@ -31,19 +31,34 @@
     - ansible_selinux.status == "enabled"
   become: true
 
-- name: Ensure SELinux context rule for artifacts root is present
-  ansible.builtin.command: >
-    semanage fcontext -a -t httpd_sys_content_t '{{ nginx_artifacts_root }}(/.*)?'
-  register: semanage_result
-  failed_when: semanage_result.rc not in [0, 1]
-  changed_when: semanage_result.rc == 0      # rc==1 means "already defined"
+# NOTE: Consider migrating to community.general.sefcontext module in the future
+# for better idempotency and maintainability. Current implementation avoids
+# external collection dependencies.
+
+- name: Check if SELinux context rule for artifacts root exists
+  ansible.builtin.shell: |
+    semanage fcontext -l | grep -F '{{ nginx_artifacts_root }}(/.*)?'
+  register: fcontext_check
+  changed_when: false
+  failed_when: false
   when:
     - ansible_selinux is defined
     - ansible_selinux.status == "enabled"
   become: true
 
+- name: Add SELinux context rule for artifacts root if missing
+  ansible.builtin.command: >
+    semanage fcontext -a -t httpd_sys_content_t '{{ nginx_artifacts_root }}(/.*)?'
+  when:
+    - ansible_selinux is defined
+    - ansible_selinux.status == "enabled"
+    - fcontext_check.rc != 0
+  become: true
+
 - name: Apply SELinux context to artifacts root
   ansible.builtin.command: "restorecon -Rv {{ nginx_artifacts_root }}"
+  register: restorecon_result
+  changed_when: restorecon_result.stdout != ""
   when:
     - ansible_selinux is defined
     - ansible_selinux.status == "enabled"

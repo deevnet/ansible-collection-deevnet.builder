@@ -1,33 +1,31 @@
+---
+# General development tools
 - name: Ensure dev tool packages are present
   become: true
   ansible.builtin.dnf:
-    name:
-      - git
-      - vim
-      - tmux
-      - golang
-      - nmap-ncat
+    name: "{{ dev_tool_packages }}"
     state: present
 
-    # --- HashiCorp Terraform + Packer install (Fedora/RHEL family) ---
+# HashiCorp repository configuration
 - name: Ensure HashiCorp repository for Terraform/Packer is configured
   ansible.builtin.yum_repository:
     name: hashicorp
     description: "HashiCorp Stable - $basearch"
-    baseurl: "https://rpm.releases.hashicorp.com/fedora/$releasever/$basearch/stable"
-    enabled: yes
-    gpgcheck: yes
-    repo_gpgcheck: yes
-    gpgkey: "https://rpm.releases.hashicorp.com/gpg"
-  when: ansible_os_family == "RedHat"
+    baseurl: "{{ hashicorp_repo_baseurl }}"
+    enabled: "{{ hashicorp_repo_enabled }}"
+    gpgcheck: "{{ hashicorp_repo_gpgcheck }}"
+    repo_gpgcheck: "{{ hashicorp_repo_repo_gpgcheck }}"
+    gpgkey: "{{ hashicorp_repo_gpgkey }}"
+  when:
+    - ansible_os_family == "RedHat"
+    - hashicorp_packages | length > 0
   become: true
 
-- name: Install Terraform and Packer via DNF
+- name: Install HashiCorp packages via DNF
   ansible.builtin.package:
-    name:
-      - terraform
-      - packer
-      - golang
+    name: "{{ hashicorp_packages }}"
     state: present
-  when: ansible_os_family == "RedHat"
+  when:
+    - ansible_os_family == "RedHat"
+    - hashicorp_packages | length > 0
   become: true
