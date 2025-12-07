@@ -1,0 +1,24 @@
+---
+# roles/omada_controller/tasks/setup_systemd.yml
+
+- name: Deploy omada controller systemd unit file
+  ansible.builtin.template:
+    src: omada-controller.service.j2
+    dest: "{{ omada_systemd_unit_path }}"
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart omada-controller
+  become: true
+
+- name: Reload systemd daemon
+  ansible.builtin.systemd:
+    daemon_reload: true
+  become: true
+
+- name: Enable and start omada controller service
+  ansible.builtin.service:
+    name: omada-controller
+    enabled: "{{ omada_systemd_enabled }}"
+    state: "{{ omada_systemd_state }}"
+  become: true

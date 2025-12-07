@@ -15,3 +15,15 @@
   loop: "{{ artifacts_ssh_keys }}"
   loop_control:
     loop_var: artifact_item
+
+- name: Ensure Podman is installed (for image artifacts)
+  ansible.builtin.dnf:
+    name: podman
+    state: present
+  when: (artifacts_podman_images | default([])) | length > 0
+
+- name: Download podman image artifacts
+  ansible.builtin.include_tasks: fetch_podman_images.yml
+  loop: "{{ artifacts_podman_images | default([]) }}"
+  loop_control:
+    loop_var: podman_artifact

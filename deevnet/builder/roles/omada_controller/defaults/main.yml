@@ -1,0 +1,106 @@
+---
+# Omada Controller container configuration
+# ------------------------------------------------------------------------------
+
+# Container image configuration
+# This should match the tarball created by the artifacts role
+omada_image_name: "docker.io/mbentley/omada-controller"
+omada_image_tag: "5.12"
+omada_tarball_filename: "omada-controller-latest.tar"
+omada_tarball_url: "http://127.0.0.1/container-images/omada-controller/{{ omada_tarball_filename }}"
+
+# Container runtime settings
+omada_container_name: "omada-controller"
+
+# Network port mappings
+# See: https://www.tp-link.com/us/support/faq/3281/
+omada_ports:
+  # Management portal (HTTP)
+  - host: 8088
+    container: 8088
+    protocol: tcp
+  # Management portal (HTTPS)
+  - host: 8043
+    container: 8043
+    protocol: tcp
+  # Portal HTTPS redirector
+  - host: 8843
+    container: 8843
+    protocol: tcp
+  # Controller discovery and adoption (v1)
+  - host: 29810
+    container: 29810
+    protocol: udp
+  # Manager connection (v1)
+  - host: 29811
+    container: 29811
+    protocol: tcp
+  - host: 29812
+    container: 29812
+    protocol: tcp
+  - host: 29813
+    container: 29813
+    protocol: tcp
+  # Controller discovery and adoption (v2)
+  - host: 29814
+    container: 29814
+    protocol: udp
+  # Device discovery and adoption
+  - host: 27001
+    container: 27001
+    protocol: udp
+  - host: 27002
+    container: 27002
+    protocol: tcp
+
+# Persistent data directories
+omada_data_root: "/opt/omada-controller"
+omada_data_dirs:
+  - path: "{{ omada_data_root }}/data"
+    mode: "0755"
+  - path: "{{ omada_data_root }}/work"
+    mode: "0755"
+  - path: "{{ omada_data_root }}/logs"
+    mode: "0755"
+
+# Volume mounts for container
+omada_volumes:
+  - host: "{{ omada_data_root }}/data"
+    container: "/opt/tplink/EAPController/data"
+  - host: "{{ omada_data_root }}/work"
+    container: "/opt/tplink/EAPController/work"
+  - host: "{{ omada_data_root }}/logs"
+    container: "/opt/tplink/EAPController/logs"
+
+# Systemd service configuration
+omada_systemd_unit_path: "/etc/systemd/system/omada-controller.service"
+omada_systemd_enabled: true
+omada_systemd_state: "started"
+
+# Environment variables for container
+omada_env_vars:
+  - "TZ=America/New_York"
+  - "MANAGE_HTTP_PORT=8088"
+  - "MANAGE_HTTPS_PORT=8043"
+  - "PORTAL_HTTP_PORT=8088"
+  - "PORTAL_HTTPS_PORT=8843"
+  - "SHOW_SERVER_LOGS=true"
+  - "SHOW_MONGODB_LOGS=false"
+
+# Firewall configuration
+omada_firewall_ports_tcp:
+  - 8088
+  - 8043
+  - 8843
+  - 29811
+  - 29812
+  - 29813
+  - 27002
+
+omada_firewall_ports_udp:
+  - 29810
+  - 29814
+  - 27001
+
+# SELinux configuration
+omada_selinux_context: "container_file_t"

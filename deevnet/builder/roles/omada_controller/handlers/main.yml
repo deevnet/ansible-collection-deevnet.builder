@@ -1,0 +1,13 @@
+---
+- name: restart omada-controller
+  ansible.builtin.service:
+    name: omada-controller
+    state: restarted
+  become: true
+
+- name: cleanup omada temp dir
+  ansible.builtin.file:
+    path: "{{ omada_temp_dir.path }}"
+    state: absent
+  become: true
+  when: omada_temp_dir is defined

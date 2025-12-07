@@ -1,0 +1,46 @@
+---
+# roles/omada_controller/tasks/load_container.yml
+
+- name: Load omada controller image into podman
+  ansible.builtin.command:
+    cmd: "podman load -i {{ omada_tarball_path }}"
+  register: podman_load_result
+  changed_when: "'Loaded image' in podman_load_result.stdout or 'Getting image source signatures' in podman_load_result.stdout"
+  become: true
+
+- name: Check if omada controller container already exists
+  ansible.builtin.command:
+    cmd: "podman container exists {{ omada_container_name }}"
+  register: container_exists
+  changed_when: false
+  failed_when: false
+  become: true
+
+- name: Remove existing omada controller container if present
+  ansible.builtin.command:
+    cmd: "podman rm -f {{ omada_container_name }}"
+  when: container_exists.rc == 0
+  become: true
+  notify: restart omada-controller
+
+- name: Create omada controller container
+  ansible.builtin.command:
+    cmd: >
+      podman create
+      --name {{ omada_container_name }}
+      --hostname omada-controller
+      {% for port in omada_ports %}
+      -p {{ port.host }}:{{ port.container }}/{{ port.protocol }}
+      {% endfor %}
+      {% for volume in omada_volumes %}
+      -v {{ volume.host }}:{{ volume.container }}
+      {% endfor %}
+      {% for env in omada_env_vars %}
+      -e "{{ env }}"
+      {% endfor %}
+      --restart=no
+      {{ omada_image_name }}:{{ omada_image_tag }}
+  register: create_container_result
+  changed_when: create_container_result.rc == 0
+  become: true
+  notify: restart omada-controller

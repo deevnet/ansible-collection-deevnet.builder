@@ -50,9 +50,22 @@ Configures a host to run the full image factory:
 ### `artifacts`
 Static HTTP artifact server using nginx:
 
-- Hosts ISOs, images, bootloaders, checksums  
-- Automatically downloads items defined in group vars  
-- Exposes content for Packer builds, PXE boot, and installers  
+- Hosts ISOs, images, bootloaders, checksums
+- Automatically downloads items defined in group vars
+- Exposes content for Packer builds, PXE boot, and installers
+- Supports container image downloads with Podman
+
+**Container Image Requirements:**
+When using `artifacts_podman_images`, all image names MUST be fully-qualified (include registry prefix like `docker.io/`, `ghcr.io/`, etc.). Short names will fail due to Podman's non-interactive short-name resolution policy.
+
+Example:
+```yaml
+artifacts_podman_images:
+  - name: "omada-controller"
+    upstream_image: "docker.io/mbentley/omada-controller:5.12"  # Must include docker.io/
+    dest_subdir: "container-images/omada-controller"
+    tar_filename: "omada-controller-5.12.tar"
+```  
 
 ### `bootstrap_pxe_host`
 Bootstraps bare-metal machines:

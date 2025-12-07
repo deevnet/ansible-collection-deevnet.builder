@@ -1,0 +1,11 @@
+---
+# roles/omada_controller/tasks/install_podman.yml
+
+- name: Install podman and required dependencies
+  ansible.builtin.dnf:
+    name:
+      - podman
+      - slirp4netns
+      - fuse-overlayfs
+    state: present
+  become: true

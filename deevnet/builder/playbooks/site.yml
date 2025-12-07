@@ -18,3 +18,10 @@
     - deevnet.builder
   roles:
     - artifacts
+
+- hosts: network_controllers
+  become: true
+  collections:
+    - deevnet.builder
+  roles:
+    - omada_controller

@@ -3,6 +3,36 @@
 # Normally overridden in group_vars for builder hosts.
 artifacts_to_fetch: []
 
+# Podman container image artifacts to download and save as tarballs.
+#
+# IMPORTANT: All image names MUST be fully-qualified (include registry prefix).
+# Short names like 'nginx:latest' or 'user/repo:tag' will fail because Podman
+# requires interactive TTY for short-name resolution, which Ansible cannot provide.
+#
+# Examples of correct fully-qualified names:
+#   - docker.io/library/nginx:latest              # Docker Hub official images
+#   - docker.io/mbentley/omada-controller:5.12    # Docker Hub user images
+#   - ghcr.io/username/repository:tag             # GitHub Container Registry
+#   - quay.io/namespace/image:version             # Quay.io
+#   - registry.example.com/image:tag              # Private registry
+#
+# Each entry requires:
+#   - name: Descriptive name for the artifact
+#   - upstream_image: FULLY-QUALIFIED image name (registry.io/namespace/image:tag)
+#   - dest_subdir: Subdirectory under nginx_artifacts_root
+#   - tar_filename: Name for the saved tarball
+#   - latest_symlink: (optional) Symlink name for 'latest' version
+#
+# Example:
+# artifacts_podman_images:
+#   - name: "omada-controller"
+#     upstream_image: "docker.io/mbentley/omada-controller:5.12"
+#     dest_subdir: "container-images/omada-controller"
+#     tar_filename: "omada-controller-5.12.tar"
+#     latest_symlink: "omada-controller-latest.tar"
+#
+artifacts_podman_images: []
+
 # Root directory for all HTTP-served files
 nginx_artifacts_root: /srv/dvntm-http
 

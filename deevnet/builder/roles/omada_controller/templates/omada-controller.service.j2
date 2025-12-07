@@ -1,0 +1,19 @@
+[Unit]
+Description=TP-Link Omada Controller
+Documentation=https://github.com/mbentley/docker-omada-controller
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=10
+TimeoutStartSec=300
+TimeoutStopSec=120
+
+ExecStartPre=-/usr/bin/podman stop {{ omada_container_name }}
+ExecStart=/usr/bin/podman start -a {{ omada_container_name }}
+ExecStop=/usr/bin/podman stop -t 120 {{ omada_container_name }}
+
+[Install]
+WantedBy=multi-user.target

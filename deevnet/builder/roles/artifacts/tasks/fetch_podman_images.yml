@@ -1,0 +1,69 @@
+---
+# Expects variables:
+# - nginx_artifacts_root
+# - podman_artifact.name
+# - podman_artifact.upstream_image (MUST be fully-qualified with registry)
+# - podman_artifact.dest_subdir
+# - podman_artifact.tar_filename
+# - podman_artifact.latest_symlink (optional)
+
+- name: Validate that {{ podman_artifact.name }} uses a fully-qualified image name
+  ansible.builtin.assert:
+    that:
+      - podman_artifact.upstream_image is defined
+      - podman_artifact.upstream_image | length > 0
+      - >
+        ('.' in podman_artifact.upstream_image.split('/')[0]) or
+        (':' in podman_artifact.upstream_image.split('/')[0] and
+         podman_artifact.upstream_image.split('/')[0] != podman_artifact.upstream_image.split(':')[0])
+    fail_msg: |
+      Invalid container image name: '{{ podman_artifact.upstream_image }}'
+
+      Podman requires fully-qualified image names (including registry prefix)
+      when running non-interactively through Ansible.
+
+      Short names like 'nginx:latest' or 'mbentley/omada-controller:5.12'
+      will fail with: "short-name resolution enforced but cannot prompt without a TTY"
+
+      Please update your inventory to use a fully-qualified image name:
+
+      Common registries:
+        - Docker Hub:        docker.io/mbentley/omada-controller:5.12
+        - GitHub Container:  ghcr.io/owner/repository:tag
+        - Quay.io:          quay.io/namespace/image:tag
+        - Private registry:  registry.example.com/image:tag
+
+      Update the 'upstream_image' field in your artifacts_podman_images list.
+    success_msg: "Image name '{{ podman_artifact.upstream_image }}' is properly qualified"
+
+- name: Ensure dest dir exists for podman image {{ podman_artifact.name }}
+  ansible.builtin.file:
+    path: "{{ nginx_artifacts_root }}/{{ podman_artifact.dest_subdir }}"
+    state: directory
+    owner: nginx
+    group: nginx
+    mode: '0755'
+
+- name: Pull upstream podman image {{ podman_artifact.upstream_image }}
+  ansible.builtin.command:
+    cmd: "podman pull {{ podman_artifact.upstream_image }}"
+  register: podman_pull
+  changed_when: >
+    'Downloaded' in podman_pull.stdout or
+    'Storing' in podman_pull.stdout
+
+- name: Save podman image {{ podman_artifact.name }} to tarball
+  ansible.builtin.command:
+    cmd: >
+      podman save
+      -o {{ nginx_artifacts_root }}/{{ podman_artifact.dest_subdir }}/{{ podman_artifact.tar_filename }}
+      {{ podman_artifact.upstream_image }}
+  args:
+    creates: "{{ nginx_artifacts_root }}/{{ podman_artifact.dest_subdir }}/{{ podman_artifact.tar_filename }}"
+
+- name: Update latest symlink for {{ podman_artifact.name }}
+  ansible.builtin.file:
+    src: "{{ podman_artifact.tar_filename }}"
+    dest: "{{ nginx_artifacts_root }}/{{ podman_artifact.dest_subdir }}/{{ podman_artifact.latest_symlink }}"
+    state: link
+  when: podman_artifact.latest_symlink is defined

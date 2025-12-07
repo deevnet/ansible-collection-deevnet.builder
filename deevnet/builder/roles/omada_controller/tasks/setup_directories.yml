@@ -1,0 +1,21 @@
+---
+# roles/omada_controller/tasks/setup_directories.yml
+
+- name: Create omada controller data root directory
+  ansible.builtin.file:
+    path: "{{ omada_data_root }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+
+- name: Create omada controller persistent data directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop: "{{ omada_data_dirs }}"
+  become: true

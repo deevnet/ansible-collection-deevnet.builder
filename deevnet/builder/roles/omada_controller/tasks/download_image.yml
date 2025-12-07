@@ -1,0 +1,24 @@
+---
+# roles/omada_controller/tasks/download_image.yml
+
+- name: Create temporary directory for image tarball
+  ansible.builtin.tempfile:
+    state: directory
+    suffix: omada
+  register: omada_temp_dir
+  become: true
+
+- name: Download omada controller image tarball from artifact server
+  ansible.builtin.get_url:
+    url: "{{ omada_tarball_url }}"
+    dest: "{{ omada_temp_dir.path }}/{{ omada_tarball_filename }}"
+    mode: '0644'
+    timeout: 300
+  register: download_result
+  become: true
+  failed_when: download_result.failed
+  notify: cleanup omada temp dir
+
+- name: Store tarball path for loading
+  ansible.builtin.set_fact:
+    omada_tarball_path: "{{ omada_temp_dir.path }}/{{ omada_tarball_filename }}"

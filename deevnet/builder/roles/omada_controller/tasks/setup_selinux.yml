@@ -1,0 +1,40 @@
+---
+# roles/omada_controller/tasks/setup_selinux.yml
+
+- name: Ensure semanage is installed (for SELinux fcontext management)
+  ansible.builtin.package:
+    name: policycoreutils-python-utils
+    state: present
+  when:
+    - ansible_selinux is defined
+    - ansible_selinux.status == "enabled"
+  become: true
+
+- name: Check if SELinux context rule for omada data root exists
+  ansible.builtin.shell: |
+    semanage fcontext -l | grep -F '{{ omada_data_root }}(/.*)?'
+  register: fcontext_check
+  changed_when: false
+  failed_when: false
+  when:
+    - ansible_selinux is defined
+    - ansible_selinux.status == "enabled"
+  become: true
+
+- name: Add SELinux context rule for omada data directories if missing
+  ansible.builtin.command: >
+    semanage fcontext -a -t {{ omada_selinux_context }} '{{ omada_data_root }}(/.*)?'
+  when:
+    - ansible_selinux is defined
+    - ansible_selinux.status == "enabled"
+    - fcontext_check.rc != 0
+  become: true
+
+- name: Apply SELinux context to omada data directories
+  ansible.builtin.command: "restorecon -Rv {{ omada_data_root }}"
+  register: restorecon_result
+  changed_when: restorecon_result.stdout != ""
+  when:
+    - ansible_selinux is defined
+    - ansible_selinux.status == "enabled"
+  become: true
