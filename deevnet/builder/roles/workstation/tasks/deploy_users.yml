@@ -45,3 +45,33 @@
   loop: "{{ dev_users | default([]) }}"
   loop_control:
     loop_var: user
+
+- name: Ensure per-user npm-global directory exists
+  become: true
+  become_user: "{{ item.name }}"
+  loop: "{{ dev_users }}"
+  file:
+    path: "{{ item.home }}/.npm-global"
+    state: directory
+    mode: "0755"
+
+- name: Ensure per-user .npmrc sets prefix to ~/.npm-global
+  become: true
+  become_user: "{{ item.name }}"
+  loop: "{{ dev_users }}"
+  lineinfile:
+    path: "{{ item.home }}/.npmrc"
+    regexp: '^prefix='
+    line: "prefix={{ item.home }}/.npm-global"
+    create: true
+
+- name: Ensure npm-global/bin is on PATH in dev users' bashrc
+  become: true
+  become_user: "{{ item.name }}"
+  loop: "{{ dev_users }}"
+  lineinfile:
+    path: "{{ item.home }}/.bashrc"
+    regexp: 'npm-global/bin'
+    line: 'export PATH="$HOME/.npm-global/bin:$PATH"'
+    insertafter: EOF
+    create: true

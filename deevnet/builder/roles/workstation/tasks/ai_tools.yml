@@ -6,23 +6,79 @@
     state: present
   become: true
 
-- name: Install Claude Code globally
-  ansible.builtin.npm:
-    name: "@anthropic-ai/claude-code"
-    global: true
-    state: present
+- name: Install Claude CLI for dev users
   become: true
+  become_user: "{{ item.name }}"
+  loop: "{{ dev_users }}"
+  environment:
+    NPM_CONFIG_PREFIX: "{{ item.home }}/.npm-global"
+  npm:
+    name: "@anthropic-ai/claude-code"
+    global: yes
+    state: present
+
+# These next 3 tasks ensure the install type is known to claude (kind of annoying, but /status comes clean after)
+# Ensure ~/.claude exists for each dev user
+# 1. Ensure ~/.claude exists for each dev user
+- name: Ensure Claude config directory exists for dev users
+  become: true
+  become_user: "{{ item.name }}"
+  loop: "{{ dev_users }}"
+  file:
+    path: "{{ item.home }}/.claude"
+    state: directory
+    mode: "0755"
+
+
+# 2. Try to read existing settings.json (ok if missing)
+- name: Read existing Claude settings.json (if present)
+  become: true
+  become_user: "{{ item.name }}"
+  loop: "{{ dev_users }}"
+  register: claude_settings_raw
+  failed_when: false          # do not fail if file is missing
+  slurp:
+    path: "{{ item.home }}/.claude/settings.json"
+
+
+# 3. Safely parse + merge JSON, then write it back
+- name: Merge installationType into Claude settings.json (safe JSON modify)
+  become: true
+  become_user: "{{ item.name }}"
+  loop: "{{ dev_users }}"
+  loop_control:
+    index_var: idx
+  vars:
+    # result for this user from the slurp step
+    raw: "{{ claude_settings_raw.results[idx] | default({}) }}"
+
+    # lazily decode JSON only if raw.content exists
+    existing: >-
+      {{
+        (raw.content | b64decode | from_json)
+        if (raw is defined and 'content' in raw)
+        else {}
+      }}
+
+    # merge our key into the existing JSON
+    merged: "{{ existing | combine({'installationType': 'npm-global'}, recursive=True) }}"
+
+  copy:
+    dest: "{{ item.home }}/.claude/settings.json"
+    mode: "0644"
+    content: "{{ merged | to_nice_json }}"
+
 
 - name: Install Gemini CLI globally
   ansible.builtin.npm:
     name: "@google/gemini-cli"
     global: true
-    state: present
+    state: absent
   become: true
 
 - name: Install OpenAI Codex CLI globally
   ansible.builtin.npm:
     name: "@openai/codex"
     global: true
-    state: present
+    state: absent
   become: true

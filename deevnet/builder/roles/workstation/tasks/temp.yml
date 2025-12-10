@@ -1,0 +1,27 @@
+- name: Install Claude CLI for dev users
+  become: true
+  become_user: "{{ item.name }}"
+  loop: "{{ dev_users }}"
+  npm:
+    name: "@anthropic-ai/claude-code"
+    global: yes
+    state: latest
+
+- name: Ensure per-user npm-global directory exists
+  become: true
+  become_user: "{{ item.name }}"
+  loop: "{{ dev_users }}"
+  file:
+    path: "{{ item.home | default('/home/' ~ item.name) }}/.npm-global"
+    state: directory
+    mode: "0755"
+
+- name: Ensure per-user .npmrc sets prefix to ~/.npm-global
+  become: true
+  become_user: "{{ item.name }}"
+  loop: "{{ dev_users }}"
+  lineinfile:
+    path: "{{ item.home | default('/home/' ~ item.name) }}/.npmrc"
+    regexp: '^prefix='
+    line: "prefix={{ item.home | default('/home/' ~ item.name) }}/.npm-global"
+    create: true

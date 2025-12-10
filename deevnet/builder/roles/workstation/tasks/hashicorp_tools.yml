@@ -1,0 +1,23 @@
+# HashiCorp repository configuration
+- name: Ensure HashiCorp repository for Terraform/Packer is configured
+  ansible.builtin.yum_repository:
+    name: hashicorp
+    description: "HashiCorp Stable - $basearch"
+    baseurl: "{{ hashicorp_repo_baseurl }}"
+    enabled: "{{ hashicorp_repo_enabled }}"
+    gpgcheck: "{{ hashicorp_repo_gpgcheck }}"
+    repo_gpgcheck: "{{ hashicorp_repo_repo_gpgcheck }}"
+    gpgkey: "{{ hashicorp_repo_gpgkey }}"
+  when:
+    - ansible_os_family == "RedHat"
+    - hashicorp_packages | length > 0
+  become: true
+
+- name: Install HashiCorp packages via DNF
+  ansible.builtin.package:
+    name: "{{ hashicorp_packages }}"
+    state: present
+  when:
+    - ansible_os_family == "RedHat"
+    - hashicorp_packages | length > 0
+  become: true
