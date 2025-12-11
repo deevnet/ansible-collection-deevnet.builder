@@ -1,0 +1,54 @@
+# dnsmasq configuration for PXE boot
+# Managed by Ansible - DO NOT EDIT MANUALLY
+# Role: deevnet.builder.bootstrap
+
+# Interface binding
+interface={{ bootstrap_dhcp_interface }}
+bind-interfaces
+
+# DHCP Configuration
+dhcp-range={{ bootstrap_dhcp_range_start }},{{ bootstrap_dhcp_range_end }},{{ bootstrap_dhcp_netmask }},{{ bootstrap_dhcp_lease_time }}
+dhcp-option=option:router,{{ bootstrap_dhcp_gateway }}
+dhcp-option=option:dns-server,{{ bootstrap_dhcp_dns_servers | join(',') }}
+{% if bootstrap_dhcp_domain %}
+dhcp-option=option:domain-name,{{ bootstrap_dhcp_domain }}
+{% endif %}
+
+# PXE Boot Configuration
+dhcp-boot=pxelinux.0
+
+# TFTP Configuration
+enable-tftp
+tftp-root={{ bootstrap_tftp_root }}
+tftp-secure
+
+# DNS Configuration
+{% if bootstrap_enable_dns %}
+# DNS enabled
+{% if bootstrap_dns_upstream_servers | length > 0 %}
+{% for server in bootstrap_dns_upstream_servers %}
+server={{ server }}
+{% endfor %}
+{% endif %}
+{% else %}
+# DNS disabled - only DHCP and TFTP
+port=0
+{% endif %}
+
+# Logging
+{% if bootstrap_dnsmasq_log_queries %}
+log-queries
+{% endif %}
+{% if bootstrap_dnsmasq_log_dhcp %}
+log-dhcp
+{% endif %}
+
+# General Settings
+user={{ bootstrap_dnsmasq_user }}
+group={{ bootstrap_dnsmasq_group }}
+
+# Disable reading /etc/hosts and /etc/resolv.conf
+no-hosts
+{% if not bootstrap_enable_dns %}
+no-resolv
+{% endif %}

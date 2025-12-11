@@ -1,0 +1,14 @@
+---
+# roles/bootstrap/tasks/install_dnsmasq.yml
+
+- name: Install dnsmasq and dependencies
+  ansible.builtin.dnf:
+    name:
+      - dnsmasq
+      - syslinux-tftpboot
+      - tftp-server
+    state: present
+  become: true
+
+- name: Gather service facts (for firewalld detection)
+  ansible.builtin.service_facts:

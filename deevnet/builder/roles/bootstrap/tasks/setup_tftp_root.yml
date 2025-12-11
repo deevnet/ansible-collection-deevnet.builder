@@ -1,0 +1,37 @@
+---
+# roles/bootstrap/tasks/setup_tftp_root.yml
+
+- name: Ensure TFTP root directory exists
+  ansible.builtin.file:
+    path: "{{ bootstrap_tftp_root }}"
+    state: directory
+    owner: "{{ bootstrap_dnsmasq_user }}"
+    group: "{{ bootstrap_dnsmasq_group }}"
+    mode: "0755"
+  become: true
+
+- name: Ensure TFTP directory tree exists
+  ansible.builtin.file:
+    path: "{{ bootstrap_tftp_root }}/{{ item }}"
+    state: directory
+    owner: "{{ bootstrap_dnsmasq_user }}"
+    group: "{{ bootstrap_dnsmasq_group }}"
+    mode: "0755"
+  loop: "{{ bootstrap_tftp_dirs }}"
+  become: true
+
+- name: Copy PXELINUX bootloader files from syslinux
+  ansible.builtin.copy:
+    src: "/tftpboot/{{ item }}"
+    dest: "{{ bootstrap_tftp_root }}/{{ item }}"
+    remote_src: true
+    owner: "{{ bootstrap_dnsmasq_user }}"
+    group: "{{ bootstrap_dnsmasq_group }}"
+    mode: "0644"
+  loop:
+    - pxelinux.0
+    - ldlinux.c32
+    - menu.c32
+    - libcom32.c32
+    - libutil.c32
+  become: true

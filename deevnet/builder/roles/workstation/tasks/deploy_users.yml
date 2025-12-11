@@ -46,6 +46,30 @@
   loop_control:
     loop_var: user
 
+- name: Ensure DEEVNET X11 auto-DISPLAY block in .bashrc
+  become: true
+  blockinfile:
+    path: "{{ item.home }}/.bashrc"
+    create: true
+    owner: "{{ item.name }}"
+    group: "{{ item.primary_group }}"
+    mode: '0644'
+    marker: "# {mark} DEEVNET X11 DISPLAY BLOCK"
+    block: |
+      # --- DEEVNET X11 AUTO-DISPLAY ---
+      # Set DISPLAY only if:
+      #  1. DISPLAY is not already set (i.e. not ssh -X)
+      #  2. This is an SSH session (SSH_CLIENT present)
+      #  3. The SSH client is assumed to run an X server (e.g. Mac XQuartz)
+      if [ -z "$DISPLAY" ] && [ -n "$SSH_CLIENT" ]; then
+        # SSH_CLIENT="client_ip client_port server_port"
+        export DISPLAY="$(echo "$SSH_CLIENT" | awk '{print $1}'):0"
+      fi
+      # --- END DEEVNET X11 AUTO-DISPLAY ---
+  loop: "{{ dev_users }}"
+  loop_control:
+    label: "{{ item.name }}"
+
 - name: Ensure per-user npm-global directory exists
   become: true
   become_user: "{{ item.name }}"

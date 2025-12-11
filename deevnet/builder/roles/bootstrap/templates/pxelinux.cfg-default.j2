@@ -1,0 +1,20 @@
+# PXE Boot Menu
+# Managed by Ansible - DO NOT EDIT MANUALLY
+# Role: deevnet.builder.bootstrap
+
+DEFAULT menu.c32
+PROMPT 0
+TIMEOUT {{ bootstrap_pxe_timeout }}
+
+MENU TITLE PXE Boot Menu
+
+{% for image in bootstrap_netboot_images %}
+LABEL {{ image.name | regex_replace('[^a-zA-Z0-9]', '_') | lower }}
+  MENU LABEL {{ image.name }}
+  KERNEL {{ image.dest_subdir }}/vmlinuz
+  APPEND initrd={{ image.dest_subdir }}/initrd.img {{ image.boot_options | default('') }}
+{% endfor %}
+
+LABEL local
+  MENU LABEL Boot from local disk
+  LOCALBOOT 0

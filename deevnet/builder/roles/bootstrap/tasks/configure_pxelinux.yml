@@ -1,0 +1,20 @@
+---
+# roles/bootstrap/tasks/configure_pxelinux.yml
+
+- name: Ensure pxelinux.cfg directory exists
+  ansible.builtin.file:
+    path: "{{ bootstrap_tftp_root }}/pxelinux.cfg"
+    state: directory
+    owner: "{{ bootstrap_dnsmasq_user }}"
+    group: "{{ bootstrap_dnsmasq_group }}"
+    mode: "0755"
+  become: true
+
+- name: Deploy PXE boot menu (default)
+  ansible.builtin.template:
+    src: pxelinux.cfg-default.j2
+    dest: "{{ bootstrap_tftp_root }}/pxelinux.cfg/default"
+    owner: "{{ bootstrap_dnsmasq_user }}"
+    group: "{{ bootstrap_dnsmasq_group }}"
+    mode: "0644"
+  become: true

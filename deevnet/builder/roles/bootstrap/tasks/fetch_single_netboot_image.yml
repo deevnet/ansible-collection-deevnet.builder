@@ -1,0 +1,31 @@
+---
+# roles/bootstrap/tasks/fetch_single_netboot_image.yml
+
+- name: Ensure netboot destination directory exists for {{ netboot_item.name }}
+  ansible.builtin.file:
+    path: "{{ bootstrap_tftp_root }}/{{ netboot_item.dest_subdir }}"
+    state: directory
+    owner: "{{ bootstrap_dnsmasq_user }}"
+    group: "{{ bootstrap_dnsmasq_group }}"
+    mode: "0755"
+  become: true
+
+- name: Download kernel for {{ netboot_item.name }}
+  ansible.builtin.get_url:
+    url: "{{ bootstrap_artifact_server }}/{{ netboot_item.artifact_path }}/{{ netboot_item.kernel_filename }}"
+    dest: "{{ bootstrap_tftp_root }}/{{ netboot_item.dest_subdir }}/vmlinuz"
+    owner: "{{ bootstrap_dnsmasq_user }}"
+    group: "{{ bootstrap_dnsmasq_group }}"
+    mode: "0644"
+    checksum: "{{ 'sha256:' + netboot_item.kernel_sha256 if netboot_item.kernel_sha256 is defined else omit }}"
+  become: true
+
+- name: Download initramfs for {{ netboot_item.name }}
+  ansible.builtin.get_url:
+    url: "{{ bootstrap_artifact_server }}/{{ netboot_item.artifact_path }}/{{ netboot_item.initrd_filename }}"
+    dest: "{{ bootstrap_tftp_root }}/{{ netboot_item.dest_subdir }}/initrd.img"
+    owner: "{{ bootstrap_dnsmasq_user }}"
+    group: "{{ bootstrap_dnsmasq_group }}"
+    mode: "0644"
+    checksum: "{{ 'sha256:' + netboot_item.initrd_sha256 if netboot_item.initrd_sha256 is defined else omit }}"
+  become: true

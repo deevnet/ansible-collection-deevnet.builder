@@ -1,0 +1,23 @@
+---
+# roles/bootstrap/tasks/main.yml
+
+- name: Install dnsmasq and dependencies
+  ansible.builtin.import_tasks: install_dnsmasq.yml
+
+- name: Setup TFTP root directory structure
+  ansible.builtin.import_tasks: setup_tftp_root.yml
+
+- name: Configure SELinux for TFTP directories
+  ansible.builtin.import_tasks: setup_selinux.yml
+
+- name: Fetch netboot images from artifact server
+  ansible.builtin.import_tasks: fetch_netboot_images.yml
+
+- name: Configure dnsmasq service
+  ansible.builtin.import_tasks: configure_dnsmasq.yml
+
+- name: Configure PXE boot menu
+  ansible.builtin.import_tasks: configure_pxelinux.yml
+
+- name: Configure firewall rules
+  ansible.builtin.import_tasks: configure_firewall.yml

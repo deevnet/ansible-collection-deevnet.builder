@@ -1,0 +1,50 @@
+---
+# roles/bootstrap/tasks/setup_selinux.yml
+
+- name: Ensure semanage is installed (for SELinux fcontext management)
+  ansible.builtin.package:
+    name: policycoreutils-python-utils
+    state: present
+  when:
+    - ansible_selinux is defined
+    - ansible_selinux.status == "enabled"
+  become: true
+
+- name: Check if SELinux context rule for TFTP root exists
+  ansible.builtin.shell: |
+    semanage fcontext -l | grep -F '{{ bootstrap_tftp_root }}(/.*)?'
+  register: fcontext_check
+  changed_when: false
+  failed_when: false
+  when:
+    - ansible_selinux is defined
+    - ansible_selinux.status == "enabled"
+  become: true
+
+- name: Add SELinux context rule for TFTP root if missing
+  ansible.builtin.command: >
+    semanage fcontext -a -t {{ bootstrap_selinux_tftp_context }} '{{ bootstrap_tftp_root }}(/.*)?'
+  when:
+    - ansible_selinux is defined
+    - ansible_selinux.status == "enabled"
+    - fcontext_check.rc != 0
+  become: true
+
+- name: Apply SELinux context to TFTP root
+  ansible.builtin.command: "restorecon -Rv {{ bootstrap_tftp_root }}"
+  register: restorecon_result
+  changed_when: restorecon_result.stdout != ""
+  when:
+    - ansible_selinux is defined
+    - ansible_selinux.status == "enabled"
+  become: true
+
+- name: Enable dnsmasq TFTP boolean in SELinux
+  ansible.posix.seboolean:
+    name: dnsmasq_connect_any
+    state: true
+    persistent: true
+  when:
+    - ansible_selinux is defined
+    - ansible_selinux.status == "enabled"
+  become: true

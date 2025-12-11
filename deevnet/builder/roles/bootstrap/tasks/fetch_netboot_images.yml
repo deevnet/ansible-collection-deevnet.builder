@@ -1,0 +1,8 @@
+---
+# roles/bootstrap/tasks/fetch_netboot_images.yml
+
+- name: Process requested netboot images
+  ansible.builtin.include_tasks: fetch_single_netboot_image.yml
+  loop: "{{ bootstrap_netboot_images }}"
+  loop_control:
+    loop_var: netboot_item

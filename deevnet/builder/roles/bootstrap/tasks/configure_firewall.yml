@@ -1,0 +1,39 @@
+---
+# roles/bootstrap/tasks/configure_firewall.yml
+
+- name: Gather service facts (for firewalld detection)
+  ansible.builtin.service_facts:
+
+- name: Open DHCP port (67/udp) in firewalld
+  ansible.posix.firewalld:
+    port: "67/udp"
+    permanent: true
+    state: enabled
+    immediate: true
+  when:
+    - "'firewalld.service' in ansible_facts.services"
+    - ansible_facts.services['firewalld.service'].state == 'running'
+  become: true
+
+- name: Open TFTP port (69/udp) in firewalld
+  ansible.posix.firewalld:
+    port: "69/udp"
+    permanent: true
+    state: enabled
+    immediate: true
+  when:
+    - "'firewalld.service' in ansible_facts.services"
+    - ansible_facts.services['firewalld.service'].state == 'running'
+  become: true
+
+- name: Open DNS ports (53/tcp, 53/udp) in firewalld if DNS enabled
+  ansible.posix.firewalld:
+    service: dns
+    permanent: true
+    state: enabled
+    immediate: true
+  when:
+    - "'firewalld.service' in ansible_facts.services"
+    - ansible_facts.services['firewalld.service'].state == 'running'
+    - bootstrap_enable_dns | bool
+  become: true

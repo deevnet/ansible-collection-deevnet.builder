@@ -25,3 +25,10 @@
     - deevnet.builder
   roles:
     - omada_controller
+
+- hosts: bootstrap_nodes
+  become: true
+  collections:
+    - deevnet.builder
+  roles:
+    - bootstrap

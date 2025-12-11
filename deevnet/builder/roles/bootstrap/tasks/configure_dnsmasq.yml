@@ -1,0 +1,20 @@
+---
+# roles/bootstrap/tasks/configure_dnsmasq.yml
+
+- name: Deploy dnsmasq configuration
+  ansible.builtin.template:
+    src: dnsmasq.conf.j2
+    dest: "{{ bootstrap_dnsmasq_conf_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+    validate: 'dnsmasq --test --conf-file=%s'
+  notify: restart dnsmasq
+  become: true
+
+- name: Enable and start dnsmasq service
+  ansible.builtin.service:
+    name: dnsmasq
+    enabled: true
+    state: started
+  become: true

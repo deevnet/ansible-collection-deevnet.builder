@@ -1,0 +1,104 @@
+---
+# Bootstrap node configuration for PXE network installation
+# ------------------------------------------------------------------------------
+
+# TFTP Root Directory
+# ------------------------------------------------------------------------------
+bootstrap_tftp_root: /srv/tftp
+
+# TFTP directory structure to create
+bootstrap_tftp_dirs:
+  - pxelinux.cfg
+  - fedora
+  - fedora/40
+  - fedora/41
+
+# DHCP Configuration
+# ------------------------------------------------------------------------------
+# IMPORTANT: These are minimal defaults. Override in group_vars/bootstrap_nodes.yml
+# with appropriate values for your network.
+
+# DHCP range for PXE clients
+bootstrap_dhcp_range_start: "192.168.1.100"
+bootstrap_dhcp_range_end: "192.168.1.199"
+bootstrap_dhcp_lease_time: "12h"
+
+# Network interface to bind DHCP/TFTP services
+# IMPORTANT: Override this in inventory if not using eth0
+bootstrap_dhcp_interface: "eth0"
+
+# DHCP network options
+bootstrap_dhcp_gateway: "192.168.1.1"
+bootstrap_dhcp_netmask: "255.255.255.0"
+bootstrap_dhcp_dns_servers:
+  - "8.8.8.8"
+  - "8.8.4.4"
+
+# DHCP domain (optional, leave empty to disable)
+bootstrap_dhcp_domain: ""
+
+# PXE Boot Configuration
+# ------------------------------------------------------------------------------
+# Boot prompt message displayed to clients
+bootstrap_pxe_boot_prompt: "Press <Tab> or <F1> for boot options, <Enter> to boot"
+
+# Timeout before auto-boot (in deciseconds, 300 = 30 seconds)
+bootstrap_pxe_timeout: 300
+
+# DNS Configuration
+# ------------------------------------------------------------------------------
+# Set to true to enable DNS functionality in dnsmasq
+# If false, dnsmasq only provides DHCP + TFTP
+bootstrap_enable_dns: false
+
+# DNS upstream servers (if DNS is enabled)
+# These are used for forwarding DNS queries
+bootstrap_dns_upstream_servers: []
+
+# Artifact Server Configuration
+# ------------------------------------------------------------------------------
+# URL of the artifact server hosting netboot images
+# Override in inventory to point to your artifact server
+bootstrap_artifact_server: "http://127.0.0.1"
+
+# Netboot Images to Fetch
+# ------------------------------------------------------------------------------
+# List of netboot images to download from artifact server and serve via PXE.
+# Each entry requires:
+#   - name: Descriptive name (e.g., "Fedora 40 Server")
+#   - artifact_path: Path on artifact server (e.g., "iso/fedora/40/netboot")
+#   - dest_subdir: Subdirectory under TFTP root (e.g., "fedora/40")
+#   - kernel_filename: Kernel filename on artifact server (e.g., "vmlinuz")
+#   - initrd_filename: Initramfs filename on artifact server (e.g., "initrd.img")
+#   - kernel_sha256: (optional) SHA256 checksum for kernel
+#   - initrd_sha256: (optional) SHA256 checksum for initramfs
+#   - boot_options: (optional) Kernel command-line options
+#
+# Example:
+# bootstrap_netboot_images:
+#   - name: "Fedora 40 Server"
+#     artifact_path: "iso/fedora/40/netboot"
+#     dest_subdir: "fedora/40"
+#     kernel_filename: "vmlinuz"
+#     initrd_filename: "initrd.img"
+#     boot_options: "inst.repo=http://192.168.1.10/iso/fedora/40 inst.stage2=http://192.168.1.10/iso/fedora/40"
+#
+bootstrap_netboot_images: []
+
+# Dnsmasq Service Configuration
+# ------------------------------------------------------------------------------
+bootstrap_dnsmasq_conf_path: /etc/dnsmasq.conf
+bootstrap_dnsmasq_user: dnsmasq
+bootstrap_dnsmasq_group: dnsmasq
+
+# SELinux Configuration
+# ------------------------------------------------------------------------------
+bootstrap_selinux_tftp_context: "tftpdir_rw_t"
+
+# Logging Configuration
+# ------------------------------------------------------------------------------
+# Enable query logging for debugging
+bootstrap_dnsmasq_log_queries: false
+
+# Enable DHCP transaction logging
+bootstrap_dnsmasq_log_dhcp: true

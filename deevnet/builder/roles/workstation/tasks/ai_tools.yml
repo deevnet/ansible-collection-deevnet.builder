@@ -68,17 +68,24 @@
     mode: "0644"
     content: "{{ merged | to_nice_json }}"
 
-
-- name: Install Gemini CLI globally
-  ansible.builtin.npm:
+- name: Install Gemini CLI for dev users
+  become: true
+  become_user: "{{ item.name }}"
+  loop: "{{ dev_users }}"
+  environment:
+    NPM_CONFIG_PREFIX: "{{ item.home }}/.npm-global"
+  npm:
     name: "@google/gemini-cli"
-    global: true
-    state: absent
-  become: true
+    global: yes
+    state: present
 
-- name: Install OpenAI Codex CLI globally
-  ansible.builtin.npm:
-    name: "@openai/codex"
-    global: true
-    state: absent
+- name: Install OpenAI Codex CLI dev users
   become: true
+  become_user: "{{ item.name }}"
+  loop: "{{ dev_users }}"
+  environment:
+    NPM_CONFIG_PREFIX: "{{ item.home }}/.npm-global"
+  npm:
+    name: "@openai/codex"
+    global: yes
+    state: present
