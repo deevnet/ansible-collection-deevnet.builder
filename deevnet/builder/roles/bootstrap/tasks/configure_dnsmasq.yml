@@ -18,3 +18,12 @@
     enabled: true
     state: started
   become: true
+  when: bootstrap_dnsmasq_service_enabled | bool
+
+- name: Ensure dnsmasq is stopped and disabled (safe mode)
+  ansible.builtin.service:
+    name: dnsmasq
+    enabled: false
+    state: stopped
+  become: true
+  when: not (bootstrap_dnsmasq_service_enabled | bool)

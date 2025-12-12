@@ -29,3 +29,11 @@ dev_tool_packages:
   - tmux
   - golang
   - nmap-ncat
+
+# Virtualization packages for KVM/libvirt
+virtualization_packages:
+  - qemu-kvm
+  - libvirt
+  - libvirt-daemon-kvm
+  - virt-install
+  - virt-manager

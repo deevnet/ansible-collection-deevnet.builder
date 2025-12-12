@@ -39,12 +39,3 @@
     - ansible_selinux.status == "enabled"
   become: true
 
-- name: Enable dnsmasq TFTP boolean in SELinux
-  ansible.posix.seboolean:
-    name: dnsmasq_connect_any
-    state: true
-    persistent: true
-  when:
-    - ansible_selinux is defined
-    - ansible_selinux.status == "enabled"
-  become: true

@@ -10,3 +10,6 @@
 
 - name: Install AI tools
   ansible.builtin.import_tasks: ai_tools.yml
+
+- name: Setup virtualization
+  ansible.builtin.import_tasks: virtualization.yml

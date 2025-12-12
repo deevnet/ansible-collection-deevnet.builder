@@ -4,3 +4,4 @@
     name: dnsmasq
     state: restarted
   become: true
+  when: bootstrap_dnsmasq_service_enabled | bool

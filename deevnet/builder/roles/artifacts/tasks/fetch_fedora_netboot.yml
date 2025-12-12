@@ -1,0 +1,60 @@
+---
+# Fedora netboot image download (vmlinuz + initrd.img)
+# Downloads PXE boot files from standard Fedora mirror URLs
+
+- name: Ensure netboot destination directory exists
+  ansible.builtin.file:
+    path: "{{ nginx_artifacts_root }}/{{ artifact_item.dest_subdir }}"
+    state: directory
+    mode: "0755"
+  become: true
+
+# --- vmlinuz ---
+- name: Check if vmlinuz already exists
+  ansible.builtin.stat:
+    path: "{{ nginx_artifacts_root }}/{{ artifact_item.dest_subdir }}/vmlinuz"
+    checksum_algorithm: "{{ 'sha256' if artifact_item.vmlinuz_sha256 is defined else omit }}"
+  register: vmlinuz_stat
+  become: true
+
+- name: Download vmlinuz for {{ artifact_item.name }}
+  ansible.builtin.get_url:
+    url: "{{ artifact_item.base_url }}/vmlinuz"
+    dest: "{{ nginx_artifacts_root }}/{{ artifact_item.dest_subdir }}/vmlinuz"
+    mode: "0644"
+    checksum: "{{ 'sha256:' + artifact_item.vmlinuz_sha256 if artifact_item.vmlinuz_sha256 is defined else omit }}"
+    force: "{{ vmlinuz_stat.stat.exists
+              and artifact_item.vmlinuz_sha256 is defined
+              and vmlinuz_stat.stat.checksum is defined
+              and vmlinuz_stat.stat.checksum != artifact_item.vmlinuz_sha256 }}"
+  become: true
+  when: >
+    (not vmlinuz_stat.stat.exists)
+    or (artifact_item.vmlinuz_sha256 is defined
+        and vmlinuz_stat.stat.checksum is defined
+        and vmlinuz_stat.stat.checksum != artifact_item.vmlinuz_sha256)
+
+# --- initrd.img ---
+- name: Check if initrd.img already exists
+  ansible.builtin.stat:
+    path: "{{ nginx_artifacts_root }}/{{ artifact_item.dest_subdir }}/initrd.img"
+    checksum_algorithm: "{{ 'sha256' if artifact_item.initrd_sha256 is defined else omit }}"
+  register: initrd_stat
+  become: true
+
+- name: Download initrd.img for {{ artifact_item.name }}
+  ansible.builtin.get_url:
+    url: "{{ artifact_item.base_url }}/initrd.img"
+    dest: "{{ nginx_artifacts_root }}/{{ artifact_item.dest_subdir }}/initrd.img"
+    mode: "0644"
+    checksum: "{{ 'sha256:' + artifact_item.initrd_sha256 if artifact_item.initrd_sha256 is defined else omit }}"
+    force: "{{ initrd_stat.stat.exists
+              and artifact_item.initrd_sha256 is defined
+              and initrd_stat.stat.checksum is defined
+              and initrd_stat.stat.checksum != artifact_item.initrd_sha256 }}"
+  become: true
+  when: >
+    (not initrd_stat.stat.exists)
+    or (artifact_item.initrd_sha256 is defined
+        and initrd_stat.stat.checksum is defined
+        and initrd_stat.stat.checksum != artifact_item.initrd_sha256)

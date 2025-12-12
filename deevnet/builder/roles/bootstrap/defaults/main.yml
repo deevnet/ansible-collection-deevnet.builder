@@ -91,6 +91,10 @@ bootstrap_dnsmasq_conf_path: /etc/dnsmasq.conf
 bootstrap_dnsmasq_user: dnsmasq
 bootstrap_dnsmasq_group: dnsmasq
 
+# Set to true to enable and start dnsmasq service
+# WARNING: Leave false if another DHCP server is on the network
+bootstrap_dnsmasq_service_enabled: false
+
 # SELinux Configuration
 # ------------------------------------------------------------------------------
 bootstrap_selinux_tftp_context: "tftpdir_rw_t"

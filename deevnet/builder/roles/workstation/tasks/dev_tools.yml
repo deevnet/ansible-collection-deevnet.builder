@@ -6,6 +6,12 @@
     name: "{{ dev_tool_packages }}"
     state: present
 
+- name: Ensure ISO tools packages are present
+  become: true
+  ansible.builtin.dnf:
+    name: "{{ iso_packages }}"
+    state: present
+
 - name: Ensure X11 packages are present
   become: true
   ansible.builtin.dnf:

@@ -1,0 +1,39 @@
+---
+# roles/workstation/tasks/virtualization.yml
+
+- name: Check CPU virtualization support
+  ansible.builtin.shell: grep -E '(vmx|svm)' /proc/cpuinfo
+  register: virt_check
+  changed_when: false
+  failed_when: false
+  become: false
+
+- name: Fail if hardware virtualization not enabled
+  ansible.builtin.fail:
+    msg: >
+      Hardware virtualization (VT-x/AMD-V) not detected in CPU flags.
+      Please enable virtualization in BIOS/UEFI settings.
+  when: virt_check.rc != 0
+
+- name: Install virtualization packages
+  ansible.builtin.dnf:
+    name: "{{ virtualization_packages }}"
+    state: present
+  become: true
+
+- name: Enable and start libvirtd service
+  ansible.builtin.service:
+    name: libvirtd
+    enabled: true
+    state: started
+  become: true
+
+- name: Add dev users to virtualization groups
+  ansible.builtin.user:
+    name: "{{ item.name }}"
+    groups:
+      - libvirt
+      - kvm
+    append: true
+  loop: "{{ dev_users }}"
+  become: true
