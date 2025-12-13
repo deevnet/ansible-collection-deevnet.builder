@@ -24,4 +24,5 @@ description: >
   builder configuration, artifact hosting, and PXE provisioning—providing
   a complete toolkit for exploring Infrastructure as Code workflows with
   Ansible, Packer, Terraform, nginx, and TFTP.
-dependencies: {}
+dependencies:
+  ansible.posix: ">=1.5.0"
