@@ -9,9 +9,11 @@ This is the `deevnet.builder` Ansible collection for infrastructure automation. 
 ## Repository Structure
 
 ```
-deevnet/builder/           # Collection root (namespace.collection format)
-├── galaxy.yml             # Collection metadata
+repo-root/                 # Collection root = git repo root (Galaxy-compatible layout)
+├── galaxy.yml             # Collection metadata (declares ansible.posix dependency)
+├── meta/runtime.yml       # Ansible version requirement
 ├── ansible.cfg            # Development config (uses external inventory)
+├── Makefile               # Build/install automation
 ├── playbooks/site.yml     # Main playbook targeting builder/workstations/artifact_servers/network_controllers/bootstrap_nodes
 └── roles/
     ├── base/              # Baseline packages (dnf-based)
@@ -23,15 +25,23 @@ deevnet/builder/           # Collection root (namespace.collection format)
 
 ## Common Commands
 
-Build the collection:
+Using the Makefile (recommended):
 ```bash
-cd deevnet/builder
-ansible-galaxy collection build
+make deps      # Install ansible.posix dependency
+make build     # Build collection tarball
+make install   # Install tarball locally
+make rebuild   # deps + build + install (full bootstrap)
+make all       # rebuild + run playbook against builder
 ```
 
-Run the main playbook (requires inventory at `../../../ansible-inventory-deevnet/dvntm`):
+Manual commands (from repo root):
 ```bash
-cd deevnet/builder
+ansible-galaxy collection build --force
+ansible-galaxy collection install deevnet-builder-*.tar.gz --force
+```
+
+Run the main playbook (requires inventory at `../ansible-inventory-deevnet/dvntm`):
+```bash
 ansible-playbook playbooks/site.yml
 ```
 

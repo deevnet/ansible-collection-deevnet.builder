@@ -8,21 +8,28 @@ This is an Ansible collection, so there isn't a traditional "build" process. To 
 
 **Running Playbooks:**
 
-The main playbook is `deevnet/builder/playbooks/site.yml`. To run it, you would use a command like this:
+The main playbook is `playbooks/site.yml`. To run it from the repo root:
 
 ```bash
-ansible-playbook -i <inventory_file> deevnet/builder/playbooks/site.yml
+ansible-playbook -i <inventory_file> playbooks/site.yml
 ```
 
 Replace `<inventory_file>` with the path to your Ansible inventory file.
 
 **Building the Collection:**
 
-To build the collection into a tarball for distribution, you can use the `ansible-galaxy` command:
+Use the Makefile (recommended):
 
 ```bash
-cd deevnet/builder
-ansible-galaxy collection build
+make rebuild   # Install deps, build, and install locally
+make all       # rebuild + run playbook against builder
+```
+
+Or manually:
+
+```bash
+ansible-galaxy collection build --force
+ansible-galaxy collection install deevnet-builder-*.tar.gz --force
 ```
 
 This will create a file like `deevnet-builder-1.0.0.tar.gz`.
@@ -34,4 +41,4 @@ This will create a file like `deevnet-builder-1.0.0.tar.gz`.
 *   **Tasks:** Tasks are defined in the `tasks` directory of each role. The main entry point for a role's tasks is `tasks/main.yml`.
 *   **Templates:** Templates are used to generate configuration files. They are located in the `templates` directory of each role.
 *   **Handlers:** Handlers are used to restart services or perform other actions when a change is made. They are located in the `handlers` directory of each role.
-*   **Metadata:** Collection metadata is defined in `deevnet/builder/galaxy.yml`. Role metadata is in the `meta/main.yml` file for each role.
+*   **Metadata:** Collection metadata is defined in `galaxy.yml` at the repo root. Role metadata is in the `meta/main.yml` file for each role.
