@@ -21,3 +21,13 @@
     - ansible_os_family == "RedHat"
     - hashicorp_packages | length > 0
   become: true
+
+- name: Allow ephemeral TCP ports for packer HTTP server
+  ansible.posix.firewalld:
+    port: 1025-65535/tcp
+    permanent: true
+    state: enabled
+
+- name: Reload firewalld
+  ansible.builtin.command: firewall-cmd --reload
+  changed_when: false
