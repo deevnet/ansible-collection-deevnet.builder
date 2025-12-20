@@ -41,4 +41,5 @@
       - policycoreutils
       - policycoreutils-python-utils
       - chrony
+      - acl   # Required for Ansible become_user privilege escalation
     state: present
