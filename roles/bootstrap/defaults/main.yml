@@ -2,9 +2,21 @@
 # Bootstrap node configuration for PXE network installation
 # ------------------------------------------------------------------------------
 
+# TFTP Server Backend
+# ------------------------------------------------------------------------------
+# Choose which TFTP server to use:
+#   - "tftpd": Standalone in.tftpd via systemd socket (default, recommended)
+#   - "dnsmasq": Use dnsmasq for TFTP + DHCP (legacy, requires additional config)
+bootstrap_tftp_backend: "tftpd"
+
 # TFTP Root Directory
 # ------------------------------------------------------------------------------
 bootstrap_tftp_root: /srv/tftp
+
+# TFTP File Ownership
+# ------------------------------------------------------------------------------
+bootstrap_tftp_owner: "root"
+bootstrap_tftp_group: "root"
 
 # TFTP directory structure to create
 bootstrap_tftp_dirs:
@@ -12,6 +24,13 @@ bootstrap_tftp_dirs:
   - fedora
   - fedora/40
   - fedora/41
+  - fedora/43
+
+# ==============================================================================
+# DNSMASQ-ONLY CONFIGURATION (only used when bootstrap_tftp_backend == "dnsmasq")
+# ==============================================================================
+# Note: All DHCP interface/subnet/range/gateway vars below are ONLY relevant
+# when using the dnsmasq backend. When using tftpd backend, these are ignored.
 
 # DHCP Configuration
 # ------------------------------------------------------------------------------
@@ -45,61 +64,64 @@ bootstrap_pxe_boot_prompt: "Press <Tab> or <F1> for boot options, <Enter> to boo
 # Timeout before auto-boot (in deciseconds, 300 = 30 seconds)
 bootstrap_pxe_timeout: 300
 
-# DNS Configuration
+# DNS Configuration (dnsmasq backend only)
 # ------------------------------------------------------------------------------
 # Set to true to enable DNS functionality in dnsmasq
 # If false, dnsmasq only provides DHCP + TFTP
 bootstrap_enable_dns: false
 
-# DNS upstream servers (if DNS is enabled)
+# DNS upstream servers (if DNS is enabled, dnsmasq backend only)
 # These are used for forwarding DNS queries
 bootstrap_dns_upstream_servers: []
 
-# Artifact Server Configuration
+# Netboot Menu Entries
 # ------------------------------------------------------------------------------
-# URL of the artifact server hosting netboot images
-# Override in inventory to point to your artifact server
-bootstrap_artifact_server: "http://127.0.0.1"
-
-# Netboot Images to Fetch
-# ------------------------------------------------------------------------------
-# List of netboot images to download from artifact server and serve via PXE.
+# List of netboot images to display in the PXE boot menu.
+#
+# IMPORTANT: This role does NOT fetch netboot images. Images must be pre-staged
+# to {{ bootstrap_tftp_root }}/{{ dest_subdir }}/ by the artifacts role.
+#
 # Each entry requires:
-#   - name: Descriptive name (e.g., "Fedora 40 Server")
-#   - artifact_path: Path on artifact server (e.g., "iso/fedora/40/netboot")
-#   - dest_subdir: Subdirectory under TFTP root (e.g., "fedora/40")
-#   - kernel_filename: Kernel filename on artifact server (e.g., "vmlinuz")
-#   - initrd_filename: Initramfs filename on artifact server (e.g., "initrd.img")
-#   - kernel_sha256: (optional) SHA256 checksum for kernel
-#   - initrd_sha256: (optional) SHA256 checksum for initramfs
+#   - name: Display name in boot menu (e.g., "Fedora 43 Server")
+#   - dest_subdir: Path under TFTP root where vmlinuz/initrd.img exist
 #   - boot_options: (optional) Kernel command-line options
 #
 # Example:
 # bootstrap_netboot_images:
-#   - name: "Fedora 40 Server"
-#     artifact_path: "iso/fedora/40/netboot"
-#     dest_subdir: "fedora/40"
-#     kernel_filename: "vmlinuz"
-#     initrd_filename: "initrd.img"
-#     boot_options: "inst.repo=http://192.168.1.10/iso/fedora/40 inst.stage2=http://192.168.1.10/iso/fedora/40"
+#   - name: "Fedora 43 Server"
+#     dest_subdir: "fedora/43"
+#     boot_options: "inst.repo=http://192.168.1.10/iso/fedora/43 inst.ks=http://192.168.1.10/kickstart/builder.ks"
 #
 bootstrap_netboot_images: []
 
-# Dnsmasq Service Configuration
+# Dnsmasq Service Configuration (dnsmasq backend only)
 # ------------------------------------------------------------------------------
 bootstrap_dnsmasq_conf_path: /etc/dnsmasq.conf
-bootstrap_dnsmasq_user: dnsmasq
-bootstrap_dnsmasq_group: dnsmasq
 
-# Set to true to enable and start dnsmasq service
+# Set to true to enable and start dnsmasq service (dnsmasq backend only)
 # WARNING: Leave false if another DHCP server is on the network
 bootstrap_dnsmasq_service_enabled: false
+
+# ==============================================================================
+# END DNSMASQ-ONLY CONFIGURATION
+# ==============================================================================
 
 # SELinux Configuration
 # ------------------------------------------------------------------------------
 bootstrap_selinux_tftp_context: "tftpdir_rw_t"
 
-# Logging Configuration
+# UEFI PXE Boot Configuration
+# ------------------------------------------------------------------------------
+# Enable UEFI PXE boot support (alongside legacy BIOS)
+bootstrap_uefi_enabled: true
+
+# GRUB2 timeout before auto-boot (in seconds)
+bootstrap_grub_timeout: 30
+
+# Source path for GRUB2 EFI bootloader (from grub2-efi-x64 package)
+bootstrap_grub_efi_source: "/boot/efi/EFI/fedora/grubx64.efi"
+
+# Logging Configuration (dnsmasq backend only)
 # ------------------------------------------------------------------------------
 # Enable query logging for debugging
 bootstrap_dnsmasq_log_queries: false

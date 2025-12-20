@@ -1,0 +1,31 @@
+---
+# Mirror Fedora install tree using rsync
+# Required fields: name, rsync_url, dest_subdir
+#
+# Example inventory entry:
+#   - name: "Fedora 43 Server Install Tree"
+#     type: fedora_install_tree
+#     rsync_url: "rsync://dl.fedoraproject.org/fedora-enchilada/linux/releases/43/Server/x86_64/os/"
+#     dest_subdir: "iso/fedora/43.1-6"
+
+- name: Ensure rsync is installed
+  ansible.builtin.dnf:
+    name: rsync
+    state: present
+  become: true
+
+- name: Ensure install tree destination exists
+  ansible.builtin.file:
+    path: "{{ nginx_artifacts_root }}/{{ artifact_item.dest_subdir }}"
+    state: directory
+    mode: "0755"
+  become: true
+
+- name: Mirror install tree via rsync for {{ artifact_item.name }}
+  ansible.builtin.command:
+    cmd: >
+      rsync -aH --numeric-ids --delete --partial --inplace
+      --info=progress2
+      {{ artifact_item.rsync_url }}
+      {{ nginx_artifacts_root }}/{{ artifact_item.dest_subdir }}/
+  become: true

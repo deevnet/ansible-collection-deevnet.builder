@@ -14,8 +14,24 @@ dhcp-option=option:dns-server,{{ bootstrap_dhcp_dns_servers | join(',') }}
 dhcp-option=option:domain-name,{{ bootstrap_dhcp_domain }}
 {% endif %}
 
-# PXE Boot Configuration
+# PXE Boot Configuration with Architecture Detection
+{% if bootstrap_uefi_enabled %}
+# DHCP Option 93 (Client System Architecture) matching
+dhcp-match=set:bios,option:client-arch,0
+dhcp-match=set:efi64,option:client-arch,7
+dhcp-match=set:efi64-alt,option:client-arch,9
+
+# Serve appropriate bootloader based on architecture
+dhcp-boot=tag:bios,pxelinux.0
+dhcp-boot=tag:efi64,grubx64.efi
+dhcp-boot=tag:efi64-alt,grubx64.efi
+
+# Default fallback to BIOS
 dhcp-boot=pxelinux.0
+{% else %}
+# UEFI disabled - legacy BIOS only
+dhcp-boot=pxelinux.0
+{% endif %}
 
 # TFTP Configuration
 enable-tftp

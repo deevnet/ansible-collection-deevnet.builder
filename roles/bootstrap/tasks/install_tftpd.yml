@@ -1,0 +1,25 @@
+---
+# roles/bootstrap/tasks/install_tftpd.yml
+# Install packages for standalone TFTP server (no dnsmasq)
+
+- name: Install tftp-server package
+  ansible.builtin.dnf:
+    name: tftp-server
+    state: present
+  become: true
+
+- name: Install syslinux-tftpboot for BIOS PXE
+  ansible.builtin.dnf:
+    name: syslinux-tftpboot
+    state: present
+  become: true
+
+- name: Install grub2-efi-x64 for UEFI PXE
+  ansible.builtin.dnf:
+    name: grub2-efi-x64
+    state: present
+  become: true
+  when: bootstrap_uefi_enabled | bool
+
+- name: Gather service facts (for firewalld detection later)
+  ansible.builtin.service_facts:

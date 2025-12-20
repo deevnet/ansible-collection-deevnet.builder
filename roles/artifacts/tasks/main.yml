@@ -16,6 +16,9 @@
   loop_control:
     loop_var: artifact_item
 
+- name: Publish kickstart files
+  ansible.builtin.import_tasks: publish_kickstarts.yml
+
 - name: Ensure Podman is installed (for image artifacts)
   ansible.builtin.dnf:
     name: podman

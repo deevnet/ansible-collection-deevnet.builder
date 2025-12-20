@@ -1,0 +1,23 @@
+# GRUB2 UEFI Boot Configuration
+# Managed by Ansible - DO NOT EDIT MANUALLY
+# Role: deevnet.builder.bootstrap
+
+set default=0
+set timeout={{ bootstrap_grub_timeout }}
+
+insmod all_video
+insmod gfxterm
+
+menuentry "Boot from local disk" --class hd {
+    exit
+}
+
+{% for image in bootstrap_netboot_images %}
+menuentry "{{ image.name }}" --class fedora {
+    linux /{{ image.dest_subdir }}/vmlinuz \
+        ip=dhcp \
+        rd.neednet=1 \
+        {{ image.boot_options | default('') }}
+    initrd /{{ image.dest_subdir }}/initrd.img
+}
+{% endfor %}

@@ -40,11 +40,22 @@ nginx_artifacts_root: /srv/dvntm-http
 nginx_artifacts_dirs:
   - iso
   - iso/fedora
+  - netboot
+  - netboot/fedora
   - pi-images
   - keys
   - keys/ssh
   - keys/gpg
   - misc
+
+# TFTP Staging Configuration
+# ------------------------------------------------------------------------------
+# When enabled, netboot artifacts are also copied to the TFTP root directory.
+# Use this when the artifact server is also a PXE/bootstrap node.
+artifacts_tftp_staging_enabled: false
+artifacts_tftp_staging_root: /srv/tftp
+artifacts_tftp_staging_owner: "root"
+artifacts_tftp_staging_group: "root"
 
 
 # Vhost settings

@@ -5,16 +5,26 @@
   ansible.builtin.file:
     path: "{{ bootstrap_tftp_root }}/pxelinux.cfg"
     state: directory
-    owner: "{{ bootstrap_dnsmasq_user }}"
-    group: "{{ bootstrap_dnsmasq_group }}"
+    owner: "{{ bootstrap_tftp_owner }}"
+    group: "{{ bootstrap_tftp_group }}"
     mode: "0755"
   become: true
 
-- name: Deploy PXE boot menu (default)
+- name: Deploy BIOS PXE boot menu (pxelinux.cfg/default)
   ansible.builtin.template:
     src: pxelinux.cfg-default.j2
     dest: "{{ bootstrap_tftp_root }}/pxelinux.cfg/default"
-    owner: "{{ bootstrap_dnsmasq_user }}"
-    group: "{{ bootstrap_dnsmasq_group }}"
+    owner: "{{ bootstrap_tftp_owner }}"
+    group: "{{ bootstrap_tftp_group }}"
     mode: "0644"
   become: true
+
+- name: Deploy UEFI GRUB2 boot menu (grub.cfg)
+  ansible.builtin.template:
+    src: grub.cfg.j2
+    dest: "{{ bootstrap_tftp_root }}/grub.cfg"
+    owner: "{{ bootstrap_tftp_owner }}"
+    group: "{{ bootstrap_tftp_group }}"
+    mode: "0644"
+  become: true
+  when: bootstrap_uefi_enabled | bool
