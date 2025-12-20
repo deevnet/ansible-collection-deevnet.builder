@@ -1,34 +1,24 @@
 - hosts: builder
   become: true
-  collections:
-    - deevnet.builder
   roles:
     - base
 
 - hosts: workstations
   become: true
-  collections:
-    - deevnet.builder
   roles:
     - workstation
 
 - hosts: artifact_servers
   become: true
-  collections:
-    - deevnet.builder
   roles:
     - artifacts
 
 - hosts: network_controllers
   become: true
-  collections:
-    - deevnet.builder
   roles:
     - omada_controller
 
 - hosts: bootstrap_nodes
   become: true
-  collections:
-    - deevnet.builder
   roles:
     - bootstrap

@@ -1,0 +1,95 @@
+---
+# Fedora netboot image download with TFTP staging
+# Downloads PXE boot files to HTTP root, optionally stages to TFTP root
+
+- name: Ensure netboot HTTP destination directory exists
+  ansible.builtin.file:
+    path: "{{ nginx_artifacts_root }}/{{ artifact_item.dest_subdir }}"
+    state: directory
+    mode: "0755"
+  become: true
+
+# --- Download vmlinuz to HTTP root ---
+- name: Check if vmlinuz already exists (HTTP)
+  ansible.builtin.stat:
+    path: "{{ nginx_artifacts_root }}/{{ artifact_item.dest_subdir }}/vmlinuz"
+    checksum_algorithm: "{{ 'sha256' if artifact_item.vmlinuz_sha256 is defined else omit }}"
+  register: vmlinuz_stat
+  become: true
+
+- name: Download vmlinuz for {{ artifact_item.name }}
+  ansible.builtin.get_url:
+    url: "{{ artifact_item.base_url }}/vmlinuz"
+    dest: "{{ nginx_artifacts_root }}/{{ artifact_item.dest_subdir }}/vmlinuz"
+    mode: "0644"
+    checksum: "{{ 'sha256:' + artifact_item.vmlinuz_sha256 if artifact_item.vmlinuz_sha256 is defined else omit }}"
+    force: "{{ vmlinuz_stat.stat.exists
+              and artifact_item.vmlinuz_sha256 is defined
+              and vmlinuz_stat.stat.checksum is defined
+              and vmlinuz_stat.stat.checksum != artifact_item.vmlinuz_sha256 }}"
+  become: true
+  when: >
+    (not vmlinuz_stat.stat.exists)
+    or (artifact_item.vmlinuz_sha256 is defined
+        and vmlinuz_stat.stat.checksum is defined
+        and vmlinuz_stat.stat.checksum != artifact_item.vmlinuz_sha256)
+
+# --- Download initrd.img to HTTP root ---
+- name: Check if initrd.img already exists (HTTP)
+  ansible.builtin.stat:
+    path: "{{ nginx_artifacts_root }}/{{ artifact_item.dest_subdir }}/initrd.img"
+    checksum_algorithm: "{{ 'sha256' if artifact_item.initrd_sha256 is defined else omit }}"
+  register: initrd_stat
+  become: true
+
+- name: Download initrd.img for {{ artifact_item.name }}
+  ansible.builtin.get_url:
+    url: "{{ artifact_item.base_url }}/initrd.img"
+    dest: "{{ nginx_artifacts_root }}/{{ artifact_item.dest_subdir }}/initrd.img"
+    mode: "0644"
+    checksum: "{{ 'sha256:' + artifact_item.initrd_sha256 if artifact_item.initrd_sha256 is defined else omit }}"
+    force: "{{ initrd_stat.stat.exists
+              and artifact_item.initrd_sha256 is defined
+              and initrd_stat.stat.checksum is defined
+              and initrd_stat.stat.checksum != artifact_item.initrd_sha256 }}"
+  become: true
+  when: >
+    (not initrd_stat.stat.exists)
+    or (artifact_item.initrd_sha256 is defined
+        and initrd_stat.stat.checksum is defined
+        and initrd_stat.stat.checksum != artifact_item.initrd_sha256)
+
+# --- Stage to TFTP root (optional) ---
+- name: Stage netboot files to TFTP root
+  when:
+    - artifacts_tftp_staging_enabled | bool
+    - artifact_item.tftp_dest_subdir is defined
+  block:
+    - name: Ensure TFTP destination directory exists
+      ansible.builtin.file:
+        path: "{{ artifacts_tftp_staging_root }}/{{ artifact_item.tftp_dest_subdir }}"
+        state: directory
+        owner: "{{ artifacts_tftp_staging_owner }}"
+        group: "{{ artifacts_tftp_staging_group }}"
+        mode: "0755"
+      become: true
+
+    - name: Copy vmlinuz to TFTP root
+      ansible.builtin.copy:
+        src: "{{ nginx_artifacts_root }}/{{ artifact_item.dest_subdir }}/vmlinuz"
+        dest: "{{ artifacts_tftp_staging_root }}/{{ artifact_item.tftp_dest_subdir }}/vmlinuz"
+        remote_src: true
+        owner: "{{ artifacts_tftp_staging_owner }}"
+        group: "{{ artifacts_tftp_staging_group }}"
+        mode: "0644"
+      become: true
+
+    - name: Copy initrd.img to TFTP root
+      ansible.builtin.copy:
+        src: "{{ nginx_artifacts_root }}/{{ artifact_item.dest_subdir }}/initrd.img"
+        dest: "{{ artifacts_tftp_staging_root }}/{{ artifact_item.tftp_dest_subdir }}/initrd.img"
+        remote_src: true
+        owner: "{{ artifacts_tftp_staging_owner }}"
+        group: "{{ artifacts_tftp_staging_group }}"
+        mode: "0644"
+      become: true

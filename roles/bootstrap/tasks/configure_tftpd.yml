@@ -1,0 +1,33 @@
+---
+# roles/bootstrap/tasks/configure_tftpd.yml
+# Configure standalone in.tftpd via systemd socket activation
+#
+# The shipped tftp.socket uses ListenDatagram=69 (dual-stack IPv4+IPv6)
+# We keep this default for dual-stack support.
+# Only the service ExecStart is overridden to set the TFTP root directory.
+
+- name: Create tftp.service override directory
+  ansible.builtin.file:
+    path: /etc/systemd/system/tftp.service.d
+    state: directory
+    mode: "0755"
+  become: true
+
+- name: Configure tftp.service to serve from custom root
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/tftp.service.d/override.conf
+    content: |
+      [Service]
+      ExecStart=
+      ExecStart=/usr/sbin/in.tftpd -s {{ bootstrap_tftp_root }}
+    mode: "0644"
+  become: true
+  notify: reload systemd
+
+- name: Enable and start tftp.socket
+  ansible.builtin.systemd:
+    name: tftp.socket
+    enabled: true
+    state: started
+    daemon_reload: true
+  become: true

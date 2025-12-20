@@ -6,6 +6,10 @@
   register: fedora_artifact_stat
   become: true
 
+- name: Debug - show stat result for Fedora ISO
+  ansible.builtin.debug:
+    msg: "File exists: {{ fedora_artifact_stat.stat.exists | default('UNDEFINED') }} at {{ nginx_artifacts_root }}/{{ artifact_item.dest_subdir }}/{{ artifact_item.dest_filename }}"
+
 - name: Download, verify, and publish Fedora ISO (only if missing)
   when: not fedora_artifact_stat.stat.exists
   block:
@@ -71,6 +75,7 @@
         src: "/tmp/fedora_iso_{{ artifact_item.name }}/{{ artifact_item.dest_filename }}"
         dest: "{{ nginx_artifacts_root }}/{{ artifact_item.dest_subdir }}/{{ artifact_item.dest_filename }}"
         remote_src: true
+        mode: "0644"
       become: true
 
     - name: Remove temporary Fedora download directory

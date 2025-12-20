@@ -1,0 +1,77 @@
+---
+# Provision a new builder node after PXE/kickstart installation
+#
+# This playbook is run from an existing control node (builder) to configure
+# a newly installed builder node. The target machine should have completed
+# the kickstart installation and rebooted.
+#
+# Prerequisites:
+# 1. Add the new host to your inventory (ansible-inventory-deevnet/dvntm/hosts.yml):
+#
+#    all:
+#      children:
+#        builder:
+#          hosts:
+#            n150-builder:                          # <-- Add this
+#              ansible_host: 192.168.10.XX          # <-- DHCP-assigned or static IP
+#              hostname: builder-n150
+#
+#        workstations:
+#          hosts:
+#            n150-builder:                          # <-- Add to each group
+#
+#        artifact_servers:
+#          hosts:
+#            n150-builder:
+#
+#        bootstrap_nodes:
+#          hosts:
+#            n150-builder:
+#
+# 2. Optionally add host_vars for builder-specific configuration
+#
+# Usage:
+#   ansible-playbook playbooks/provision-builder-node.yml \
+#     -i ../ansible-inventory-deevnet/dvntm \
+#     -l n150-builder
+#
+# The playbook will:
+# 1. Wait for the node to come online after kickstart installation
+# 2. Apply all builder roles (base, workstation, artifacts, bootstrap)
+
+- name: Wait for builder node to come online
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Wait for SSH connection (allow 30 minutes for installation)
+      ansible.builtin.wait_for_connection:
+        delay: 10
+        timeout: 1800  # 30 minutes for kickstart install + reboot
+
+    - name: Gather facts now that host is available
+      ansible.builtin.setup:
+
+- name: Provision builder node with all roles
+  hosts: all
+  become: true
+  roles:
+    - base
+    - workstation
+    - artifacts
+    - bootstrap
+
+  post_tasks:
+    - name: Display completion message
+      ansible.builtin.debug:
+        msg: |
+          Builder node provisioning complete!
+
+          The following services are now available:
+          - SSH: {{ ansible_host }}:22
+          - Artifact server (nginx): http://{{ ansible_host }}/
+          - PXE boot server: DHCP on {{ bootstrap_dhcp_interface | default('eth0') }}
+
+          Next steps:
+          1. Update DNS records if applicable
+          2. Populate artifacts (ISOs, images, keys)
+          3. Configure netboot images in group_vars

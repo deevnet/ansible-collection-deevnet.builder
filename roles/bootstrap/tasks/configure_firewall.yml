@@ -4,6 +4,7 @@
 - name: Gather service facts (for firewalld detection)
   ansible.builtin.service_facts:
 
+# DHCP port only for dnsmasq backend
 - name: Open DHCP port (67/udp) in firewalld
   ansible.posix.firewalld:
     port: "67/udp"
@@ -11,10 +12,12 @@
     state: enabled
     immediate: true
   when:
+    - bootstrap_tftp_backend == "dnsmasq"
     - "'firewalld.service' in ansible_facts.services"
     - ansible_facts.services['firewalld.service'].state == 'running'
   become: true
 
+# TFTP port always needed
 - name: Open TFTP port (69/udp) in firewalld
   ansible.posix.firewalld:
     port: "69/udp"
@@ -26,6 +29,7 @@
     - ansible_facts.services['firewalld.service'].state == 'running'
   become: true
 
+# DNS only for dnsmasq with DNS enabled
 - name: Open DNS ports (53/tcp, 53/udp) in firewalld if DNS enabled
   ansible.posix.firewalld:
     service: dns
@@ -33,7 +37,8 @@
     state: enabled
     immediate: true
   when:
+    - bootstrap_tftp_backend == "dnsmasq"
+    - bootstrap_enable_dns | bool
     - "'firewalld.service' in ansible_facts.services"
     - ansible_facts.services['firewalld.service'].state == 'running'
-    - bootstrap_enable_dns | bool
   become: true

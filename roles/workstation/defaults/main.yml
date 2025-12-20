@@ -37,3 +37,9 @@ virtualization_packages:
   - libvirt-daemon-kvm
   - virt-install
   - virt-manager
+
+# Hugo static site generator (extended version for SCSS/search support)
+# Get checksum from: https://github.com/gohugoio/hugo/releases/download/vX.X.X/hugo_X.X.X_checksums.txt
+hugo_version: "0.140.1"
+hugo_tarball_url: "https://github.com/gohugoio/hugo/releases/download/v{{ hugo_version }}/hugo_extended_{{ hugo_version }}_linux-amd64.tar.gz"
+hugo_tarball_sha256: "7eef6ee9143add2827e29eac370ee4e39f9d2edddc83539c7e9f3fead7e0f72f"

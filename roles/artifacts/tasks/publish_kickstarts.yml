@@ -1,0 +1,21 @@
+---
+# Publish kickstart files to the artifact server
+# These kickstarts are used for PXE-based unattended installations
+
+- name: Ensure kickstart directory exists
+  ansible.builtin.file:
+    path: "{{ nginx_artifacts_root }}/kickstart"
+    state: directory
+    mode: "0755"
+    owner: root
+    group: root
+  become: true
+
+- name: Deploy builder-node kickstart
+  ansible.builtin.copy:
+    src: kickstart/builder-node.ks
+    dest: "{{ nginx_artifacts_root }}/kickstart/builder-node.ks"
+    mode: "0644"
+    owner: root
+    group: root
+  become: true

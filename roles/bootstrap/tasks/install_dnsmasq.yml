@@ -1,7 +1,7 @@
 ---
 # roles/bootstrap/tasks/install_dnsmasq.yml
 
-- name: Install dnsmasq and dependencies
+- name: Install dnsmasq and BIOS PXE dependencies
   ansible.builtin.dnf:
     name:
       - dnsmasq
@@ -9,6 +9,14 @@
       - tftp-server
     state: present
   become: true
+
+- name: Install UEFI PXE dependencies
+  ansible.builtin.dnf:
+    name:
+      - grub2-efi-x64
+    state: present
+  become: true
+  when: bootstrap_uefi_enabled | bool
 
 - name: Gather service facts (for firewalld detection)
   ansible.builtin.service_facts:
