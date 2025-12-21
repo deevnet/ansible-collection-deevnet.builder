@@ -6,7 +6,7 @@
 #   - name: "Fedora 43 Server Install Tree"
 #     type: fedora_install_tree
 #     rsync_url: "rsync://dl.fedoraproject.org/fedora-enchilada/linux/releases/43/Server/x86_64/os/"
-#     dest_subdir: "iso/fedora/43.1-6"
+#     dest_subdir: "fedora/43/mirror"
 
 - name: Ensure rsync is installed
   ansible.builtin.dnf:
@@ -21,11 +21,38 @@
     mode: "0755"
   become: true
 
+- name: Ensure artifacts log directory exists
+  ansible.builtin.file:
+    path: "{{ nginx_artifacts_root }}/logs/rsync"
+    state: directory
+    mode: "0755"
+  become: true
+
 - name: Mirror install tree via rsync for {{ artifact_item.name }}
-  ansible.builtin.command:
-    cmd: >
-      rsync -aH --numeric-ids --delete --partial --inplace
-      --info=progress2
-      {{ artifact_item.rsync_url }}
-      {{ nginx_artifacts_root }}/{{ artifact_item.dest_subdir }}/
+  ansible.builtin.shell: |
+    set -euo pipefail
+
+    # One log per artifact, safe filename
+    safe_name="{{ artifact_item.name | lower | regex_replace('[^a-z0-9._-]+', '_') }}"
+    log_dir="{{ nginx_artifacts_root }}/logs/rsync"
+    log="${log_dir}/${safe_name}.log"
+    chg="${log_dir}/${safe_name}.changes"
+
+    mkdir -p "$log_dir"
+    : > "$chg"
+
+    rsync -aH --numeric-ids --delete --partial --inplace \
+      --itemize-changes \
+      "{{ artifact_item.rsync_url }}" \
+      "{{ nginx_artifacts_root }}/{{ artifact_item.dest_subdir }}/" \
+      | tee "$log" \
+      | awk '/^[<>ch\.]/ {print}' > "$chg"
+
+    # rc=0 means changes (chg file non-empty), rc=1 means no changes
+    test -s "$chg"
+  args:
+    executable: /bin/bash
+  register: rsync_result
+  changed_when: rsync_result.rc == 0
+  failed_when: rsync_result.rc not in [0,1]
   become: true

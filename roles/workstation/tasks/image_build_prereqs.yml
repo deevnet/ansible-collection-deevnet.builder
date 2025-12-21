@@ -1,0 +1,56 @@
+- name: Ensure loop module loads at boot
+  ansible.builtin.copy:
+    dest: /etc/modules-load.d/loop.conf
+    content: "loop\n"
+    mode: "0644"
+  become: true
+
+- name: Load loop module now
+  community.general.modprobe:
+    name: loop
+    state: present
+  become: true
+
+- name: Install tmpfiles rule for loop devices
+  ansible.builtin.copy:
+    dest: /etc/tmpfiles.d/loop.conf
+    mode: "0644"
+    content: |
+      b /dev/loop0 0660 root disk - 7:0
+      b /dev/loop1 0660 root disk - 7:1
+      b /dev/loop2 0660 root disk - 7:2
+      b /dev/loop3 0660 root disk - 7:3
+      b /dev/loop4 0660 root disk - 7:4
+      b /dev/loop5 0660 root disk - 7:5
+      b /dev/loop6 0660 root disk - 7:6
+      b /dev/loop7 0660 root disk - 7:7
+  notify: Apply tmpfiles for loop devices
+  become: true
+
+# Optional: if you want the handler to run during the same play without waiting
+# for the end of the role/play, keep this flush. Otherwise you can remove it.
+- name: Flush handlers so loop devices exist immediately
+  ansible.builtin.meta: flush_handlers
+
+- name: Verify loop devices are present (root sanity check)
+  ansible.builtin.command: losetup -f
+  register: loop_check
+  changed_when: false
+  become: true
+
+- name: Add autoprov user to disk group
+  ansible.builtin.user:
+    name: a_autoprov
+    groups: disk
+    append: true
+  become: true
+
+- name: Add dev users to disk group for image builds
+  ansible.builtin.user:
+    name: "{{ user.name }}"
+    groups: disk
+    append: true
+  loop: "{{ dev_users | default([]) }}"
+  loop_control:
+    loop_var: user
+  become: true

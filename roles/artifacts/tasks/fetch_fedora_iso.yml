@@ -50,6 +50,7 @@
         url: "{{ artifact_item.iso_url }}"
         dest: "/tmp/fedora_iso_{{ artifact_item.name }}/{{ artifact_item.dest_filename }}"
         mode: "0644"
+        timeout: 1800  # 30 minutes - allows for concurrent downloads
       become: true
 
     - name: Verify ISO checksum
@@ -77,6 +78,16 @@
         remote_src: true
         mode: "0644"
       become: true
+
+    - name: Verify ISO was published successfully
+      ansible.builtin.stat:
+        path: "{{ nginx_artifacts_root }}/{{ artifact_item.dest_subdir }}/{{ artifact_item.dest_filename }}"
+      register: published_stat
+      become: true
+
+    - name: Debug - confirm publish succeeded
+      ansible.builtin.debug:
+        msg: "ISO published: {{ published_stat.stat.exists }}, size: {{ published_stat.stat.size | default('N/A') }} bytes"
 
     - name: Remove temporary Fedora download directory
       ansible.builtin.file:
