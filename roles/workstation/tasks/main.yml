@@ -16,3 +16,6 @@
 
 - name: Setup virtualization
   ansible.builtin.import_tasks: virtualization.yml
+
+- name: Image Builder Prereqs
+  ansible.builtin.import_tasks: image_build_prereqs.yml

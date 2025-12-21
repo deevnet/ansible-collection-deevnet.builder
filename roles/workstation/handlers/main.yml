@@ -1,0 +1,3 @@
+- name: Apply tmpfiles for loop devices
+  ansible.builtin.command: systemd-tmpfiles --create /etc/tmpfiles.d/loop.conf
+  become: true

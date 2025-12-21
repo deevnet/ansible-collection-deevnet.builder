@@ -51,7 +51,7 @@ logvol /srv --vgname=vg_builder --name=lv_srv --fstype=xfs --size=1 --grow
 logvol swap --vgname=vg_builder --name=lv_swap --size=16384
 
 # Installation source (local artifact server)
-url --url=http://192.168.10.97/iso/fedora/43.1-6
+url --url=http://artifacts.dvntm.deevnet.net/fedora/43/mirror
 
 # Package selection (minimal for Ansible-driven provisioning)
 %packages --ignoremissing --excludedocs
@@ -86,7 +86,7 @@ install -d -m 0700 -o a_autoprov -g a_autoprov /home/a_autoprov/.ssh
 # The kickstart is served from the same server, so use relative addressing
 # or update this URL to match your environment
 curl --connect-timeout 10 --max-time 30 -fsSL \
-  "http://192.168.10.97/keys/ssh/a_autoprov_rsa.pub" \
+  "http://artifacts.dvntm.deevnet.net/keys/ssh/a_autoprov_rsa.pub" \
   -o /home/a_autoprov/.ssh/authorized_keys || true
 
 # Enforce perms/ownership
