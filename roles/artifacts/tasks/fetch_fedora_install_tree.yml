@@ -28,7 +28,48 @@
     mode: "0755"
   become: true
 
-- name: Mirror install tree via rsync for {{ artifact_item.name }}
+# Build a candidate list of rsync sources for this artifact.
+# Supports:
+#   - rsync_url: "rsync://host/path/"
+#   - rsync_urls: ["rsync://host/path/", ...]
+#   - rsync_mirrors: ["rsync://host/base", ...] + rsync_path: "path/from/base/"
+- name: Build rsync candidate list for {{ artifact_item.name }}
+  ansible.builtin.set_fact:
+    rsync_candidates: >-
+      {{
+        (
+          artifact_item.rsync_urls
+          | default([])
+        )
+        +
+        (
+          ([artifact_item.rsync_url] if (artifact_item.rsync_url is defined) else [])
+        )
+        +
+        (
+          (
+            artifact_item.rsync_mirrors
+            | default([])
+            | map('regex_replace', '/$', '')
+            | map('regex_replace', '$', '/' ~ (artifact_item.rsync_path | default('')))
+            | list
+          )
+          if (artifact_item.rsync_mirrors is defined)
+          else []
+        )
+      }}
+
+- name: Assert rsync candidates exist for {{ artifact_item.name }}
+  ansible.builtin.assert:
+    that:
+      - rsync_candidates | length > 0
+    fail_msg: >
+      No rsync sources defined for {{ artifact_item.name }}.
+      Provide rsync_url, rsync_urls, or rsync_mirrors+rsync_path.
+  become: false
+
+# Try each candidate in order until one succeeds (rc 0 or 1).
+- name: Mirror install tree via rsync (with fallbacks) for {{ artifact_item.name }}
   ansible.builtin.shell: |
     set -euo pipefail
 
@@ -41,11 +82,17 @@
     mkdir -p "$log_dir"
     : > "$chg"
 
+    src="{{ item }}"
+    dest="{{ nginx_artifacts_root }}/{{ artifact_item.dest_subdir }}/"
+
+    echo "RSYNC_SOURCE=${src}" | tee "$log" >/dev/null
+
     rsync -aH --numeric-ids --delete --partial --inplace \
+      --contimeout=30 --timeout=180 \
       --itemize-changes \
-      "{{ artifact_item.rsync_url }}" \
-      "{{ nginx_artifacts_root }}/{{ artifact_item.dest_subdir }}/" \
-      | tee "$log" \
+      "${src}" \
+      "${dest}" \
+      | tee -a "$log" \
       | awk '/^[<>ch\.]/ {print}' > "$chg"
 
     # rc=0 means changes (chg file non-empty), rc=1 means no changes
@@ -53,6 +100,46 @@
   args:
     executable: /bin/bash
   register: rsync_result
-  changed_when: rsync_result.rc == 0
-  failed_when: rsync_result.rc not in [0,1]
+  loop: "{{ rsync_candidates }}"
+  loop_control:
+    label: "{{ item }}"
   become: true
+
+  # Important:
+  # - We do NOT fail the task just because a mirror fails; we want to try the next one.
+  # - We'll declare success if ANY candidate returns rc 0 or 1.
+  failed_when: false
+  changed_when: false
+
+- name: Fail if all rsync mirrors failed for {{ artifact_item.name }}
+  ansible.builtin.fail:
+    msg: >
+      All rsync sources failed for {{ artifact_item.name }}.
+      Candidates tried: {{ rsync_candidates }}
+      Last rc: {{ (rsync_result.results | last).rc if (rsync_result.results | length > 0) else 'n/a' }}
+      Last stderr: {{ (rsync_result.results | last).stderr if (rsync_result.results | length > 0) else 'n/a' }}
+  when: >
+    (rsync_result.results | selectattr('rc', 'in', [0,1]) | list | length) == 0
+
+- name: Mark rsync changed/no-change for {{ artifact_item.name }}
+  ansible.builtin.set_fact:
+    rsync_effective_rc: >-
+      {{
+        (
+          rsync_result.results
+          | selectattr('rc', 'in', [0,1])
+          | map(attribute='rc')
+          | list
+          | first
+        )
+      }}
+  when: >
+    (rsync_result.results | selectattr('rc', 'in', [0,1]) | list | length) > 0
+
+- name: Set task changed status for {{ artifact_item.name }}
+  ansible.builtin.debug:
+    msg: >-
+      rsync succeeded (rc={{ rsync_effective_rc }}) for {{ artifact_item.name }}
+  changed_when: rsync_effective_rc == 0
+  when: rsync_effective_rc is defined
+
