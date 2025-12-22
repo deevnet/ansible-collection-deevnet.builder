@@ -9,7 +9,31 @@
   ansible.builtin.group:
     name: devusers
     state: present
-  become: true
+
+- name: Ensure /srv/dvnt exists with shared permissions
+  file:
+    path: /srv/dvnt
+    state: directory
+    owner: a_autoprov
+    group: devusers
+    mode: "2775"
+
+- name: Set default ACLs for /srv/dvnt
+  acl:
+    path: /srv/dvnt
+    default: yes
+    etype: group
+    entity: devusers
+    permissions: rwx
+    state: present
+
+- name: Ensure devusers have rwx ACL on /srv/dvnt
+  acl:
+    path: /srv/dvnt
+    etype: group
+    entity: devusers
+    permissions: rwx
+    state: present
 
 - name: Ensure primary groups for dev users exist
   ansible.builtin.group:
