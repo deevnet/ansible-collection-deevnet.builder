@@ -40,6 +40,8 @@ nginx_artifacts_root: /srv/dvntm-http
 nginx_artifacts_dirs:
   - iso
   - iso/fedora
+  - isos
+  - isos/proxmox
   - netboot
   - netboot/fedora
   - pi-images
