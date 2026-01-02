@@ -1,26 +1,22 @@
 # Deevnet Builder Collection
 
-The **Deevnet Builder** Ansible collection provides a complete toolkit for automating infrastructure image creation, PXE bootstrapping, artifact hosting, and multi-platform provisioning across Fedora, Debian, Raspberry Pi OS, and Proxmox.
+The **Deevnet Builder** Ansible collection provides roles for provisioning developer workstations, artifact servers, PXE boot infrastructure, and network controllers.
 
-This collection powers the Deevnet “builder pipeline,” but it also serves as a practical, hands-on way to explore real Infrastructure as Code (IaC) workflows using:
+This collection supports the Deevnet infrastructure by:
 
-- Ansible  
-- Packer  
-- Terraform  
-- PXE / TFTP  
-- Nginx for static artifact hosting  
-
-Use this collection to create a fully reproducible environment for building images, bootstrapping hardware, and managing lab infrastructure end-to-end.
+- Provisioning workstations with dev tools (including Terraform, Packer, libvirt)
+- Hosting artifacts (ISOs, images, bootloaders) via nginx
+- Bootstrapping bare metal using PXE/TFTP
+- Managing containerized network controllers
 
 ---
 
 ## Key Features
 
-- Provision developer/admin hosts  
-- Build Raspberry Pi and Proxmox images with Packer  
-- Serve artifacts (ISOs, images, bootloaders) over HTTP  
-- Bootstrap bare metal using PXE  
-- Consistent cross-platform automation (x86_64, ARM, Pi)  
+- Provision developer/admin workstations with dev tools and SSH keys
+- Serve artifacts (ISOs, images, bootloaders) over HTTP with GPG verification
+- Bootstrap bare metal using PXE (UEFI and BIOS)
+- Manage network controllers via containerized services
 - Modular roles — use only the parts you need  
 
 ---
@@ -28,77 +24,83 @@ Use this collection to create a fully reproducible environment for building imag
 ## Included Roles
 
 ### `base`
-Baseline configuration for any host participating in the builder workflow.  
-Installs essential packages, prepares system defaults, and sets the foundation for all upper-layer roles.
+Baseline configuration for hosts in the builder workflow.
+Installs essential packages and system defaults.
 
-### `dev_host`
-Creates a development/admin environment:
+### `workstation`
+Developer/admin environment setup:
 
-- Dev users (e.g. `cdeever`)  
-- SSH keys pulled from GitHub  
-- Workspace directories  
-- Common command-line tooling  
-
-### `image_builder`
-Configures a host to run the full image factory:
-
-- Installs Packer, Terraform, and Go  
-- Prepares image build directories  
-- Integrates with artifact hosting  
-- Supports building Raspberry Pi images, Proxmox templates, and cloud-init/kickstart assets  
+- Dev users with SSH keys from GitHub
+- Development tools (git, vim, tmux, golang)
+- HashiCorp tools (Terraform, Packer) from official repo
+- Virtualization packages (qemu-kvm, libvirt)
+- Shared workspace at `/srv/dvnt` with group ACLs
 
 ### `artifacts`
 Static HTTP artifact server using nginx:
 
 - Hosts ISOs, images, bootloaders, checksums
-- Automatically downloads items defined in group vars
-- Exposes content for Packer builds, PXE boot, and installers
-- Supports container image downloads with Podman
+- Pluggable fetch system: `fedora_iso`, `proxmox_iso`, `fedora_netboot`, `generic`
+- GPG signature and SHA256 verification for ISOs
+- Container image tarball downloads via Podman
+- SSH key and kickstart file publishing
 
 **Container Image Requirements:**
 When using `artifacts_podman_images`, all image names MUST be fully-qualified (include registry prefix like `docker.io/`, `ghcr.io/`, etc.). Short names will fail due to Podman's non-interactive short-name resolution policy.
 
-Example:
-```yaml
-artifacts_podman_images:
-  - name: "omada-controller"
-    upstream_image: "docker.io/mbentley/omada-controller:5.12"  # Must include docker.io/
-    dest_subdir: "container-images/omada-controller"
-    tar_filename: "omada-controller-5.12.tar"
-```  
+### `bootstrap`
+PXE network boot server:
 
-### `bootstrap_pxe_host`
-Bootstraps bare-metal machines:
+- TFTP via socket-activated in.tftpd (or dnsmasq)
+- DHCP configuration for PXE clients
+- Dynamic PXE menu generation from inventory
+- UEFI and BIOS boot support
+- SELinux context management for TFTP directories
 
-- Configures TFTP and optional DHCP  
-- Serves kernels, initrds, and installer configs  
-- Uses nginx for HTTP-based boot paths  
-- Works alongside the `artifacts` role when needed  
+### `omada_controller`
+TP-Link Omada network controller (containerized):
+
+- Podman container from local artifact server tarball
+- Systemd service for lifecycle management
+- Persistent data volumes at `/opt/omada-controller/`
+- Firewall rules for management and device communication ports  
 
 ---
 
-## Example Inventory (YAML)
+## Inventory
 
-```yaml
-all:
-  hosts:
-    builder01:
-    dev01:
-    pxe01:
+This collection uses an **external inventory** from `ansible-inventory-deevnet`.
 
-  children:
-    dev_hosts:
-      hosts:
-        dev01:
+The inventory repository contains substrate-level inventories (e.g., `dvntm/`, `dvnt/`) that cover primarily physical infrastructure, though not limited to physical hosts. Each substrate inventory follows deevnet conventions:
 
-    image_builder_hosts:
-      hosts:
-        builder01:
+- Hosts are named by form code (hv, vm, ph, pi) not by function
+- Services are assigned via group membership
+- `host_vars/` contains identity (MAC, IP, DNS)
+- `group_vars/` contains intent (packages, configuration)
 
-    artifact_hosts:
-      hosts:
-        builder01:
+Configure the inventory path in `ansible.cfg` to point to the appropriate substrate.
 
-    bootstrap_hosts:
-      hosts:
-        pxe01:
+**Expected Groups:**
+- `builder` - Base role only
+- `workstations` - Developer environments
+- `artifact_servers` - nginx artifact hosts
+- `network_controllers` - Omada controller hosts
+- `bootstrap_nodes` - PXE boot servers
+
+**Remote User:** `a_autoprov` (SSH key auth, passwordless sudo)
+
+---
+
+## Quick Start
+
+```bash
+make rebuild    # Install dependencies and build collection
+make apply      # Build + run playbooks/site.yml
+make list       # Show installed collections
+```
+
+Target specific groups:
+```bash
+ansible-playbook playbooks/site.yml --limit workstations
+ansible-playbook playbooks/site.yml --limit artifact_servers
+```
