@@ -128,3 +128,7 @@ bootstrap_dnsmasq_log_queries: false
 
 # Enable DHCP transaction logging
 bootstrap_dnsmasq_log_dhcp: true
+
+# Dnsmasq process ownership
+bootstrap_dnsmasq_user: dnsmasq
+bootstrap_dnsmasq_group: dnsmasq
