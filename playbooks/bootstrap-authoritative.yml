@@ -1,0 +1,57 @@
+# Enable bootstrap-authoritative mode
+# Makes the bootstrap node the DNS/DHCP/gateway for the substrate network
+#
+# Usage: ansible-playbook playbooks/bootstrap-authoritative.yml
+
+- name: Enable bootstrap-authoritative mode
+  hosts: bootstrap_nodes
+  become: true
+
+  vars:
+    bootstrap_wan_interface: wifi
+
+  tasks:
+    - name: Get upstream DNS from resolv.conf
+      ansible.builtin.slurp:
+        src: /etc/resolv.conf
+      register: resolv_conf
+
+    - name: Parse upstream nameservers
+      ansible.builtin.set_fact:
+        bootstrap_dns_upstream_servers: "{{ (resolv_conf.content | b64decode).split('\n')
+          | select('match', '^nameserver')
+          | map('regex_replace', '^nameserver\\s+', '')
+          | list }}"
+      when: bootstrap_dns_upstream_servers | length == 0
+
+    - name: Display upstream DNS servers
+      ansible.builtin.debug:
+        msg: "Upstream DNS servers: {{ bootstrap_dns_upstream_servers }}"
+
+    - name: Enable IP forwarding
+      ansible.posix.sysctl:
+        name: net.ipv4.ip_forward
+        value: '1'
+        sysctl_set: true
+        state: present
+        reload: true
+
+    - name: Enable masquerading on WAN interface
+      ansible.posix.firewalld:
+        masquerade: true
+        zone: public
+        permanent: true
+        immediate: true
+        state: enabled
+
+    - name: Add WAN interface to public zone
+      ansible.posix.firewalld:
+        interface: "{{ bootstrap_wan_interface }}"
+        zone: public
+        permanent: true
+        immediate: true
+        state: enabled
+
+    - name: Apply bootstrap role with DNS/DHCP enabled
+      ansible.builtin.include_role:
+        name: bootstrap

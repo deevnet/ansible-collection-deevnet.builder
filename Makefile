@@ -1,5 +1,5 @@
 .PHONY: help default deps deps-force build install-dev install-user rebuild apply list \
-        publish clean-deps clean-project deep-clean all
+        publish clean-deps clean-project deep-clean all bootstrap-auth
 
 # ---------- Config ----------
 COLLECTION_NAME ?= deevnet-builder
@@ -53,7 +53,10 @@ help:
 "      Remove project-local collection install" \
 "" \
 "  deep-clean" \
-"      Remove project + user collections and deps stamp"
+"      Remove project + user collections and deps stamp" \
+"" \
+"  bootstrap-auth" \
+"      Enable bootstrap-authoritative mode (DNS/DHCP/gateway for substrate)"
 
 # ---------- Deps ----------
 $(DEPS_STAMP): $(REQS)
@@ -115,3 +118,8 @@ deep-clean: clean-project
 	rm -f "$(DEPS_STAMP)"
 
 all: rebuild apply
+
+# ---------- Bootstrap Authority ----------
+bootstrap-auth: install-dev
+	@ANSIBLE_COLLECTIONS_PATH="$(PROJECT_COLLECTIONS_PATH):$(USER_COLLECTIONS_PATH)" \
+	  ansible-playbook playbooks/bootstrap-authoritative.yml
