@@ -1,0 +1,36 @@
+---
+# roles/bootstrap/tasks/discover_interface.yml
+# Discover OS interface name from MAC address in inventory
+#
+# Requires:
+#   - bootstrap_dhcp_interface_key: Logical interface key from inventory
+#   - infrastructure.interfaces[key].mac: MAC address in inventory
+#
+# Sets:
+#   - bootstrap_dhcp_interface: Discovered OS interface name
+
+- name: Get MAC address from inventory for {{ bootstrap_dhcp_interface_key }}
+  ansible.builtin.set_fact:
+    _bootstrap_target_mac: "{{ infrastructure.interfaces[bootstrap_dhcp_interface_key].mac | lower }}"
+
+- name: Find OS interface matching MAC {{ _bootstrap_target_mac }}
+  ansible.builtin.set_fact:
+    bootstrap_dhcp_interface_discovered: "{{ item }}"
+  loop: "{{ ansible_interfaces }}"
+  when:
+    - hostvars[inventory_hostname]['ansible_' + item] is defined
+    - hostvars[inventory_hostname]['ansible_' + item].macaddress is defined
+    - hostvars[inventory_hostname]['ansible_' + item].macaddress | lower == _bootstrap_target_mac
+
+- name: Fail if interface not found for MAC {{ _bootstrap_target_mac }}
+  ansible.builtin.fail:
+    msg: "No interface found with MAC {{ _bootstrap_target_mac }} (inventory key: {{ bootstrap_dhcp_interface_key }})"
+  when: bootstrap_dhcp_interface_discovered is not defined
+
+- name: Set discovered interface for dnsmasq
+  ansible.builtin.set_fact:
+    bootstrap_dhcp_interface: "{{ bootstrap_dhcp_interface_discovered }}"
+
+- name: Display discovered interface
+  ansible.builtin.debug:
+    msg: "Discovered interface {{ bootstrap_dhcp_interface }} for MAC {{ _bootstrap_target_mac }}"

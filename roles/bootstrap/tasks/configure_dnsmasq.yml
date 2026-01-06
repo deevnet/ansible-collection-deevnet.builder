@@ -13,10 +13,24 @@
   become: true
 
 - name: Enable and start dnsmasq service
-  ansible.builtin.service:
-    name: dnsmasq
-    enabled: true
-    state: started
+  block:
+    - name: Start dnsmasq service
+      ansible.builtin.service:
+        name: dnsmasq
+        enabled: true
+        state: started
+  rescue:
+    - name: Capture dnsmasq failure details
+      ansible.builtin.command:
+        cmd: journalctl -u dnsmasq -n 50 --no-pager
+      register: dnsmasq_journal
+      changed_when: false
+
+    - name: Display failure details
+      ansible.builtin.fail:
+        msg: |
+          dnsmasq failed to start:
+          {{ dnsmasq_journal.stdout | default('No output') }}
   become: true
   when: bootstrap_dnsmasq_service_enabled | bool
 

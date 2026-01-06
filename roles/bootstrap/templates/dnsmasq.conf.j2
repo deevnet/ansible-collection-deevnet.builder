@@ -6,6 +6,7 @@
 interface={{ bootstrap_dhcp_interface }}
 bind-interfaces
 
+{% if bootstrap_dnsmasq_dhcp_enabled %}
 # DHCP Configuration
 dhcp-range={{ bootstrap_dhcp_range_start }},{{ bootstrap_dhcp_range_end }},{{ bootstrap_dhcp_netmask }},{{ bootstrap_dhcp_lease_time }}
 dhcp-option=option:router,{{ bootstrap_dhcp_gateway }}
@@ -31,6 +32,9 @@ dhcp-boot=pxelinux.0
 {% else %}
 # UEFI disabled - legacy BIOS only
 dhcp-boot=pxelinux.0
+{% endif %}
+{% else %}
+# DHCP disabled - TFTP only mode
 {% endif %}
 
 # TFTP Configuration
