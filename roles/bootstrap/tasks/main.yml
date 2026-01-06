@@ -22,6 +22,10 @@
   ansible.builtin.import_tasks: configure_tftpd.yml
   when: bootstrap_tftp_backend == "tftpd"
 
+- name: Discover interface from MAC (dnsmasq backend)
+  ansible.builtin.include_tasks: discover_interface.yml
+  when: bootstrap_tftp_backend == "dnsmasq"
+
 - name: Configure dnsmasq service
   ansible.builtin.import_tasks: configure_dnsmasq.yml
   when: bootstrap_tftp_backend == "dnsmasq"

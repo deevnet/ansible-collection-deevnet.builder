@@ -42,9 +42,10 @@ bootstrap_dhcp_range_start: "192.168.1.100"
 bootstrap_dhcp_range_end: "192.168.1.199"
 bootstrap_dhcp_lease_time: "12h"
 
-# Network interface to bind DHCP/TFTP services
-# IMPORTANT: Override this in inventory if not using eth0
-bootstrap_dhcp_interface: "eth0"
+# Network interface for DHCP/TFTP/DNS services
+# This is the KEY in infrastructure.interfaces (e.g., "eth0", "mgmt")
+# The actual OS interface is discovered from the MAC address at runtime
+bootstrap_dhcp_interface_key: "eth0"
 
 # DHCP network options
 bootstrap_dhcp_gateway: "192.168.1.1"
@@ -99,8 +100,12 @@ bootstrap_netboot_images: []
 bootstrap_dnsmasq_conf_path: /etc/dnsmasq.conf
 
 # Set to true to enable and start dnsmasq service (dnsmasq backend only)
-# WARNING: Leave false if another DHCP server is on the network
 bootstrap_dnsmasq_service_enabled: false
+
+# Set to true to enable DHCP in dnsmasq (dnsmasq backend only)
+# WARNING: Leave false if another DHCP server is on the network
+# When false, dnsmasq only provides TFTP (and DNS if enabled)
+bootstrap_dnsmasq_dhcp_enabled: false
 
 # ==============================================================================
 # END DNSMASQ-ONLY CONFIGURATION
