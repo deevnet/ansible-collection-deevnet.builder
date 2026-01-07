@@ -1,0 +1,195 @@
+---
+# VyOS ISO download with kernel/initrd extraction and TFTP staging
+#
+# Downloads VyOS ISO, extracts PXE boot files (vmlinuz, initrd.img),
+# and optionally stages to TFTP root for network booting.
+#
+# Required artifact_item fields:
+#   - name: descriptive name
+#   - iso_url: URL to download VyOS ISO
+#   - dest_subdir: subdirectory under nginx_artifacts_root for ISO
+#   - dest_filename: filename for the ISO
+#   - netboot_subdir: subdirectory for extracted netboot files (default: netboot/vyos)
+#   - tftp_dest_subdir: (optional) TFTP destination for staging
+
+- name: Set VyOS artifact defaults
+  ansible.builtin.set_fact:
+    vyos_iso_dest: "{{ nginx_artifacts_root }}/{{ artifact_item.dest_subdir }}/{{ artifact_item.dest_filename }}"
+    vyos_netboot_subdir: "{{ artifact_item.netboot_subdir | default('netboot/vyos') }}"
+
+# --- Ensure directories exist ---
+- name: Ensure VyOS ISO destination directory exists
+  ansible.builtin.file:
+    path: "{{ nginx_artifacts_root }}/{{ artifact_item.dest_subdir }}"
+    state: directory
+    mode: "0755"
+  become: true
+
+- name: Ensure VyOS netboot destination directory exists
+  ansible.builtin.file:
+    path: "{{ nginx_artifacts_root }}/{{ vyos_netboot_subdir }}"
+    state: directory
+    mode: "0755"
+  become: true
+
+# --- Download ISO ---
+- name: Check if VyOS ISO already exists
+  ansible.builtin.stat:
+    path: "{{ vyos_iso_dest }}"
+  register: vyos_iso_stat
+  become: true
+
+- name: Download VyOS ISO for {{ artifact_item.name }}
+  ansible.builtin.get_url:
+    url: "{{ artifact_item.iso_url }}"
+    dest: "{{ vyos_iso_dest }}"
+    mode: "0644"
+    checksum: "{{ 'sha256:' + artifact_item.sha256 if artifact_item.sha256 is defined else omit }}"
+  become: true
+  when: not vyos_iso_stat.stat.exists
+  register: vyos_iso_download
+
+# --- Extract kernel and initrd from ISO ---
+- name: Extract netboot files from VyOS ISO
+  when: vyos_iso_download.changed or not vyos_iso_stat.stat.exists
+  block:
+    - name: Create temporary mount point
+      ansible.builtin.tempfile:
+        state: directory
+        prefix: vyos_iso_mount_
+      register: vyos_mount_point
+      become: true
+
+    - name: Mount VyOS ISO
+      ansible.posix.mount:
+        path: "{{ vyos_mount_point.path }}"
+        src: "{{ vyos_iso_dest }}"
+        fstype: iso9660
+        opts: loop,ro
+        state: ephemeral
+      become: true
+
+    - name: Copy vmlinuz from ISO
+      ansible.builtin.copy:
+        src: "{{ vyos_mount_point.path }}/live/vmlinuz"
+        dest: "{{ nginx_artifacts_root }}/{{ vyos_netboot_subdir }}/vmlinuz"
+        remote_src: true
+        mode: "0644"
+      become: true
+
+    - name: Copy initrd.img from ISO
+      ansible.builtin.copy:
+        src: "{{ vyos_mount_point.path }}/live/initrd.img"
+        dest: "{{ nginx_artifacts_root }}/{{ vyos_netboot_subdir }}/initrd.img"
+        remote_src: true
+        mode: "0644"
+      become: true
+
+  always:
+    - name: Unmount VyOS ISO
+      ansible.posix.mount:
+        path: "{{ vyos_mount_point.path }}"
+        state: unmounted
+      become: true
+      when: vyos_mount_point is defined and vyos_mount_point.path is defined
+
+    - name: Remove temporary mount point
+      ansible.builtin.file:
+        path: "{{ vyos_mount_point.path }}"
+        state: absent
+      become: true
+      when: vyos_mount_point is defined and vyos_mount_point.path is defined
+
+# --- Force extraction if netboot files don't exist (ISO was already downloaded) ---
+- name: Check if netboot files need extraction (existing ISO)
+  ansible.builtin.stat:
+    path: "{{ nginx_artifacts_root }}/{{ vyos_netboot_subdir }}/vmlinuz"
+  register: vyos_vmlinuz_stat
+  become: true
+
+- name: Extract netboot files from existing VyOS ISO
+  when:
+    - vyos_iso_stat.stat.exists
+    - not vyos_vmlinuz_stat.stat.exists
+  block:
+    - name: Create temporary mount point (existing ISO)
+      ansible.builtin.tempfile:
+        state: directory
+        prefix: vyos_iso_mount_
+      register: vyos_mount_point_existing
+      become: true
+
+    - name: Mount existing VyOS ISO
+      ansible.posix.mount:
+        path: "{{ vyos_mount_point_existing.path }}"
+        src: "{{ vyos_iso_dest }}"
+        fstype: iso9660
+        opts: loop,ro
+        state: ephemeral
+      become: true
+
+    - name: Copy vmlinuz from existing ISO
+      ansible.builtin.copy:
+        src: "{{ vyos_mount_point_existing.path }}/live/vmlinuz"
+        dest: "{{ nginx_artifacts_root }}/{{ vyos_netboot_subdir }}/vmlinuz"
+        remote_src: true
+        mode: "0644"
+      become: true
+
+    - name: Copy initrd.img from existing ISO
+      ansible.builtin.copy:
+        src: "{{ vyos_mount_point_existing.path }}/live/initrd.img"
+        dest: "{{ nginx_artifacts_root }}/{{ vyos_netboot_subdir }}/initrd.img"
+        remote_src: true
+        mode: "0644"
+      become: true
+
+  always:
+    - name: Unmount existing VyOS ISO
+      ansible.posix.mount:
+        path: "{{ vyos_mount_point_existing.path }}"
+        state: unmounted
+      become: true
+      when: vyos_mount_point_existing is defined and vyos_mount_point_existing.path is defined
+
+    - name: Remove temporary mount point (existing ISO)
+      ansible.builtin.file:
+        path: "{{ vyos_mount_point_existing.path }}"
+        state: absent
+      become: true
+      when: vyos_mount_point_existing is defined and vyos_mount_point_existing.path is defined
+
+# --- Stage to TFTP root (optional) ---
+- name: Stage VyOS netboot files to TFTP root
+  when:
+    - artifacts_tftp_staging_enabled | bool
+    - artifact_item.tftp_dest_subdir is defined
+  block:
+    - name: Ensure TFTP destination directory exists
+      ansible.builtin.file:
+        path: "{{ artifacts_tftp_staging_root }}/{{ artifact_item.tftp_dest_subdir }}"
+        state: directory
+        owner: "{{ artifacts_tftp_staging_owner }}"
+        group: "{{ artifacts_tftp_staging_group }}"
+        mode: "0755"
+      become: true
+
+    - name: Copy vmlinuz to TFTP root
+      ansible.builtin.copy:
+        src: "{{ nginx_artifacts_root }}/{{ vyos_netboot_subdir }}/vmlinuz"
+        dest: "{{ artifacts_tftp_staging_root }}/{{ artifact_item.tftp_dest_subdir }}/vmlinuz"
+        remote_src: true
+        owner: "{{ artifacts_tftp_staging_owner }}"
+        group: "{{ artifacts_tftp_staging_group }}"
+        mode: "0644"
+      become: true
+
+    - name: Copy initrd.img to TFTP root
+      ansible.builtin.copy:
+        src: "{{ nginx_artifacts_root }}/{{ vyos_netboot_subdir }}/initrd.img"
+        dest: "{{ artifacts_tftp_staging_root }}/{{ artifact_item.tftp_dest_subdir }}/initrd.img"
+        remote_src: true
+        owner: "{{ artifacts_tftp_staging_owner }}"
+        group: "{{ artifacts_tftp_staging_group }}"
+        mode: "0644"
+      become: true
