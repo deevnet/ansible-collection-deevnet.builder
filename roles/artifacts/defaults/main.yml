@@ -42,8 +42,10 @@ nginx_artifacts_dirs:
   - iso/fedora
   - isos
   - isos/proxmox
+  - isos/vyos
   - netboot
   - netboot/fedora
+  - netboot/vyos
   - pi-images
   - keys
   - keys/ssh
