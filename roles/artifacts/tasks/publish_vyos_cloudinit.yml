@@ -1,0 +1,30 @@
+---
+# Publish VyOS cloud-init files to the artifact server
+# Used for PXE-booted VyOS instances
+#
+# Deploys meta-data and user-data files to:
+#   {{ nginx_artifacts_root }}/cloud-init/vyos/
+#
+# These files are served via HTTP and referenced in PXE boot options:
+#   ds=nocloud-net;s=http://artifacts.dvntm.deevnet.net/cloud-init/vyos/
+
+- name: Ensure VyOS cloud-init directory exists
+  ansible.builtin.file:
+    path: "{{ nginx_artifacts_root }}/cloud-init/vyos"
+    state: directory
+    mode: "0755"
+  become: true
+
+- name: Deploy VyOS meta-data
+  ansible.builtin.template:
+    src: vyos-cloud-init/meta-data.j2
+    dest: "{{ nginx_artifacts_root }}/cloud-init/vyos/meta-data"
+    mode: "0644"
+  become: true
+
+- name: Deploy VyOS user-data
+  ansible.builtin.template:
+    src: vyos-cloud-init/user-data.j2
+    dest: "{{ nginx_artifacts_root }}/cloud-init/vyos/user-data"
+    mode: "0644"
+  become: true

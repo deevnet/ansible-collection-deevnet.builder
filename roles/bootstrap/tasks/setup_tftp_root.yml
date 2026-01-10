@@ -5,8 +5,8 @@
   ansible.builtin.file:
     path: "{{ bootstrap_tftp_root }}"
     state: directory
-    owner: root
-    group: root
+    owner: "{{ bootstrap_tftp_owner }}"
+    group: "{{ bootstrap_tftp_group }}"
     mode: "0755"
   become: true
 
@@ -14,8 +14,8 @@
   ansible.builtin.file:
     path: "{{ bootstrap_tftp_root }}/{{ item }}"
     state: directory
-    owner: root
-    group: root
+    owner: "{{ bootstrap_tftp_owner }}"
+    group: "{{ bootstrap_tftp_group }}"
     mode: "0755"
   loop: "{{ bootstrap_tftp_dirs }}"
   become: true
@@ -25,8 +25,8 @@
     src: "/tftpboot/{{ item }}"
     dest: "{{ bootstrap_tftp_root }}/{{ item }}"
     remote_src: true
-    owner: root
-    group: root
+    owner: "{{ bootstrap_tftp_owner }}"
+    group: "{{ bootstrap_tftp_group }}"
     mode: "0644"
   loop:
     - pxelinux.0
@@ -36,13 +36,77 @@
     - libutil.c32
   become: true
 
-- name: Copy GRUB2 EFI bootloader (UEFI)
+# UEFI Bootloader Setup - three options based on bootstrap_uefi_bootloader
+# ------------------------------------------------------------------------------
+
+# Option 1: iPXE (recommended) - chainloads to GRUB
+- name: Copy iPXE EFI bootloader (UEFI - ipxe mode)
   ansible.builtin.copy:
-    src: "{{ bootstrap_grub_efi_source }}"
-    dest: "{{ bootstrap_tftp_root }}/grubx64.efi"
+    src: "{{ bootstrap_ipxe_efi_source }}"
+    dest: "{{ bootstrap_tftp_root }}/ipxe.efi"
     remote_src: true
+    owner: "{{ bootstrap_tftp_owner }}"
+    group: "{{ bootstrap_tftp_group }}"
+    mode: "0644"
+  become: true
+  when:
+    - bootstrap_uefi_enabled | bool
+    - bootstrap_uefi_bootloader == "ipxe"
+
+# Deploy iPXE boot script (to TFTP root)
+- name: Deploy iPXE boot script to TFTP (UEFI - ipxe mode)
+  ansible.builtin.template:
+    src: ipxe-boot.ipxe.j2
+    dest: "{{ bootstrap_tftp_root }}/boot.ipxe"
+    owner: "{{ bootstrap_tftp_owner }}"
+    group: "{{ bootstrap_tftp_group }}"
+    mode: "0644"
+  become: true
+  when:
+    - bootstrap_uefi_enabled | bool
+    - bootstrap_uefi_bootloader == "ipxe"
+
+# Also deploy to HTTP artifacts for faster access
+- name: Deploy iPXE boot script to HTTP artifacts (UEFI - ipxe mode)
+  ansible.builtin.template:
+    src: ipxe-boot.ipxe.j2
+    dest: "{{ nginx_artifacts_root | default('/srv/dvntm-http') }}/boot.ipxe"
     owner: root
     group: root
     mode: "0644"
   become: true
-  when: bootstrap_uefi_enabled | bool
+  when:
+    - bootstrap_uefi_enabled | bool
+    - bootstrap_uefi_bootloader == "ipxe"
+
+# Option 2: Build network-enabled GRUB with embedded modules
+- name: Build network-enabled GRUB (UEFI - grub mode)
+  ansible.builtin.command:
+    cmd: >
+      grub2-mkimage
+      -O x86_64-efi
+      -o {{ bootstrap_tftp_root }}/grubx64.efi
+      -p "(tftp)/grub"
+      -d {{ bootstrap_grub_modules_dir }}
+      efinet tftp http net normal linux boot configfile
+      part_gpt part_msdos fat ext2 iso9660
+      gzio all_video gfxterm
+    creates: "{{ bootstrap_tftp_root }}/grubx64.efi"
+  become: true
+  when:
+    - bootstrap_uefi_enabled | bool
+    - bootstrap_uefi_bootloader == "grub"
+
+# Option 3: Copy local system GRUB (not recommended - lacks network modules)
+- name: Copy local GRUB2 EFI bootloader (UEFI - grub-local mode)
+  ansible.builtin.copy:
+    src: "{{ bootstrap_grub_efi_source }}"
+    dest: "{{ bootstrap_tftp_root }}/grubx64.efi"
+    remote_src: true
+    owner: "{{ bootstrap_tftp_owner }}"
+    group: "{{ bootstrap_tftp_group }}"
+    mode: "0644"
+  become: true
+  when:
+    - bootstrap_uefi_enabled | bool
+    - bootstrap_uefi_bootloader == "grub-local"

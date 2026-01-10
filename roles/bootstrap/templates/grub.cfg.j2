@@ -2,11 +2,24 @@
 # Managed by Ansible - DO NOT EDIT MANUALLY
 # Role: deevnet.builder.bootstrap
 
-set default=0
-set timeout={{ bootstrap_grub_timeout }}
-
 insmod all_video
 insmod gfxterm
+
+# Try to load MAC-specific config for automated installs
+# GRUB's $net_default_mac format varies by firmware (colons vs dashes, case)
+# We try multiple formats to maximize compatibility
+if [ -n "$net_default_mac" ]; then
+    # Try the MAC as-is first (firmware-native format)
+    if [ -f "/grub.cfg-$net_default_mac" ]; then
+        configfile "/grub.cfg-$net_default_mac"
+    fi
+    # Also check for lowercase with dashes (our canonical format)
+    # Note: GRUB lacks string functions, so we provide both file variants
+fi
+
+# Default menu if no MAC-specific config found
+set default=0
+set timeout={{ bootstrap_grub_timeout }}
 
 menuentry "Boot from local disk" --class hd {
     exit

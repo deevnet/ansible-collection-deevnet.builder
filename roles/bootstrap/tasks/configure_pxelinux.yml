@@ -19,10 +19,30 @@
     mode: "0644"
   become: true
 
-- name: Deploy UEFI GRUB2 boot menu (grub.cfg)
+- name: Ensure grub subdirectory exists (UEFI)
+  ansible.builtin.file:
+    path: "{{ bootstrap_tftp_root }}/grub"
+    state: directory
+    owner: "{{ bootstrap_tftp_owner }}"
+    group: "{{ bootstrap_tftp_group }}"
+    mode: "0755"
+  become: true
+  when: bootstrap_uefi_enabled | bool
+
+- name: Deploy UEFI GRUB2 boot menu (grub.cfg in root)
   ansible.builtin.template:
     src: grub.cfg.j2
     dest: "{{ bootstrap_tftp_root }}/grub.cfg"
+    owner: "{{ bootstrap_tftp_owner }}"
+    group: "{{ bootstrap_tftp_group }}"
+    mode: "0644"
+  become: true
+  when: bootstrap_uefi_enabled | bool
+
+- name: Deploy UEFI GRUB2 boot menu (grub/grub.cfg)
+  ansible.builtin.template:
+    src: grub.cfg.j2
+    dest: "{{ bootstrap_tftp_root }}/grub/grub.cfg"
     owner: "{{ bootstrap_tftp_owner }}"
     group: "{{ bootstrap_tftp_group }}"
     mode: "0644"
