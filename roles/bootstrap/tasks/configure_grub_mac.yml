@@ -1,0 +1,72 @@
+---
+# Deploy MAC-specific GRUB configs for automated PXE installs
+#
+# Reads from bootstrap_grub_mac_configs list:
+#   - hostname: vyos-rt01
+#     mac: "BC:24:11:2E:26:4E"
+#     image_name: "VyOS Rolling"
+#     dest_subdir: "vyos"
+#     boot_options: "boot=live noautologin fetch=..."
+
+- name: Deploy MAC-specific GRUB configs (root - uppercase)
+  ansible.builtin.template:
+    src: grub.cfg-mac.j2
+    dest: "{{ bootstrap_tftp_root }}/grub.cfg-{{ item.mac | upper | replace(':', '-') }}"
+    mode: "0644"
+  loop: "{{ bootstrap_grub_mac_configs | default([]) }}"
+  loop_control:
+    label: "{{ item.hostname }} ({{ item.mac }})"
+  become: true
+
+- name: Deploy MAC-specific GRUB configs (root - lowercase)
+  ansible.builtin.template:
+    src: grub.cfg-mac.j2
+    dest: "{{ bootstrap_tftp_root }}/grub.cfg-{{ item.mac | lower | replace(':', '-') }}"
+    mode: "0644"
+  loop: "{{ bootstrap_grub_mac_configs | default([]) }}"
+  loop_control:
+    label: "{{ item.hostname }} ({{ item.mac }})"
+  become: true
+
+- name: Deploy MAC-specific GRUB configs (grub/ - uppercase)
+  ansible.builtin.template:
+    src: grub.cfg-mac.j2
+    dest: "{{ bootstrap_tftp_root }}/grub/grub.cfg-{{ item.mac | upper | replace(':', '-') }}"
+    mode: "0644"
+  loop: "{{ bootstrap_grub_mac_configs | default([]) }}"
+  loop_control:
+    label: "{{ item.hostname }} ({{ item.mac }})"
+  become: true
+
+- name: Deploy MAC-specific GRUB configs (grub/ - lowercase)
+  ansible.builtin.template:
+    src: grub.cfg-mac.j2
+    dest: "{{ bootstrap_tftp_root }}/grub/grub.cfg-{{ item.mac | lower | replace(':', '-') }}"
+    mode: "0644"
+  loop: "{{ bootstrap_grub_mac_configs | default([]) }}"
+  loop_control:
+    label: "{{ item.hostname }} ({{ item.mac }})"
+  become: true
+
+# Some GRUB/firmware combos report MAC with colons - create those variants too
+- name: Deploy MAC-specific GRUB configs (root - lowercase with colons)
+  ansible.builtin.template:
+    src: grub.cfg-mac.j2
+    dest: "{{ bootstrap_tftp_root }}/grub.cfg-{{ item.mac | lower }}"
+    mode: "0644"
+  loop: "{{ bootstrap_grub_mac_configs | default([]) }}"
+  loop_control:
+    label: "{{ item.hostname }} ({{ item.mac }})"
+  become: true
+  when: "':' in item.mac"
+
+- name: Deploy MAC-specific GRUB configs (root - uppercase with colons)
+  ansible.builtin.template:
+    src: grub.cfg-mac.j2
+    dest: "{{ bootstrap_tftp_root }}/grub.cfg-{{ item.mac | upper }}"
+    mode: "0644"
+  loop: "{{ bootstrap_grub_mac_configs | default([]) }}"
+  loop_control:
+    label: "{{ item.hostname }} ({{ item.mac }})"
+  become: true
+  when: "':' in item.mac"

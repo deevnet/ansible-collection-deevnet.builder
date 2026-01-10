@@ -120,11 +120,31 @@ bootstrap_selinux_tftp_context: "tftpdir_rw_t"
 # Enable UEFI PXE boot support (alongside legacy BIOS)
 bootstrap_uefi_enabled: true
 
+# UEFI bootloader to use for PXE:
+#   - "ipxe": Use iPXE (recommended, best network stack)
+#   - "grub": Use GRUB built with network modules
+#   - "grub-local": Use system GRUB (may lack network modules - not recommended)
+bootstrap_uefi_bootloader: "ipxe"
+
 # GRUB2 timeout before auto-boot (in seconds)
 bootstrap_grub_timeout: 30
 
-# Source path for GRUB2 EFI bootloader (from grub2-efi-x64 package)
+# iPXE EFI binary source (from ipxe-bootimgs-x86 package)
+# Options: ipxe-x86_64.efi (full), snponly-x86_64.efi (SNP driver only - most VM compatible)
+bootstrap_ipxe_efi_source: "/usr/share/ipxe/ipxe-x86_64.efi"
+
+# iPXE menu timeout in milliseconds (0 = no timeout, wait forever)
+bootstrap_ipxe_menu_timeout: 30000
+
+# iPXE boot script URL - how iPXE finds the boot script
+# Set via DHCP filename option, or embed in iPXE binary
+bootstrap_ipxe_script_name: "boot.ipxe"
+
+# Source path for GRUB2 EFI bootloader (grub-local mode only)
 bootstrap_grub_efi_source: "/boot/efi/EFI/fedora/grubx64.efi"
+
+# GRUB modules directory (for building network-enabled GRUB)
+bootstrap_grub_modules_dir: "/usr/lib/grub/x86_64-efi"
 
 # Logging Configuration (dnsmasq backend only)
 # ------------------------------------------------------------------------------

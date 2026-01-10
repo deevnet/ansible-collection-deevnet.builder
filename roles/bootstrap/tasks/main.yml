@@ -33,5 +33,8 @@
 - name: Configure PXE boot menu
   ansible.builtin.import_tasks: configure_pxelinux.yml
 
+- name: Configure MAC-specific GRUB configs (UEFI auto-boot)
+  ansible.builtin.import_tasks: configure_grub_mac.yml
+
 - name: Configure firewall rules
   ansible.builtin.import_tasks: configure_firewall.yml

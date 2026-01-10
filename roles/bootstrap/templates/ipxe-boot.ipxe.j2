@@ -1,0 +1,57 @@
+#!ipxe
+# iPXE Boot Script for UEFI PXE
+# Managed by Ansible - DO NOT EDIT MANUALLY
+# Role: deevnet.builder.bootstrap
+#
+# This script is fetched by iPXE after DHCP and provides a boot menu.
+# It boots kernels directly via TFTP/HTTP without needing GRUB.
+
+# Set TFTP server (from DHCP next-server or manual)
+set tftp-server {{ ansible_host | default('${next-server}') }}
+
+# Menu settings
+set menu-timeout {{ bootstrap_ipxe_menu_timeout | default(30000) }}
+set menu-default local
+
+# Start menu
+:start
+menu iPXE Boot Menu - {{ bootstrap_dhcp_domain | default('deevnet') }}
+item --gap --             ------------------------- Boot Options --------------------------
+{% for image in bootstrap_netboot_images %}
+item {{ image.name | lower | replace(' ', '_') }}    {{ image.name }}
+{% endfor %}
+item --gap --             -----------------------------------------------------------------
+item local               Boot from local disk
+item shell               iPXE shell
+item reboot              Reboot
+choose --timeout ${menu-timeout} --default ${menu-default} selected || goto cancel
+goto ${selected}
+
+{% for image in bootstrap_netboot_images %}
+:{{ image.name | lower | replace(' ', '_') }}
+echo Booting {{ image.name }}...
+kernel tftp://${tftp-server}/{{ image.dest_subdir }}/vmlinuz initrd={{ image.dest_subdir }}/initrd.img {{ image.boot_options | default('') }}
+initrd tftp://${tftp-server}/{{ image.dest_subdir }}/initrd.img
+boot || goto failed
+
+{% endfor %}
+:local
+echo Booting from local disk...
+exit 1
+
+:shell
+echo Type 'exit' to return to menu
+shell
+goto start
+
+:reboot
+reboot
+
+:cancel
+echo Boot cancelled.
+goto start
+
+:failed
+echo Boot failed, dropping to shell...
+shell
+goto start

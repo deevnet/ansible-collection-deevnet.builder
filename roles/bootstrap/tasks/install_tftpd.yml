@@ -14,9 +14,12 @@
     state: present
   become: true
 
-- name: Install grub2-efi-x64 for UEFI PXE
+- name: Install UEFI PXE bootloader packages
   ansible.builtin.dnf:
-    name: grub2-efi-x64
+    name:
+      - grub2-efi-x64
+      - grub2-efi-x64-modules
+      - ipxe-bootimgs-x86
     state: present
   become: true
   when: bootstrap_uefi_enabled | bool

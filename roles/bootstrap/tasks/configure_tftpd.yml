@@ -19,7 +19,7 @@
     content: |
       [Service]
       ExecStart=
-      ExecStart=/usr/sbin/in.tftpd -s {{ bootstrap_tftp_root }}
+      ExecStart=/usr/sbin/in.tftpd -v -v -v -s {{ bootstrap_tftp_root }}
     mode: "0644"
   become: true
   notify: reload systemd

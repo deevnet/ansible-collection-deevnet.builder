@@ -85,6 +85,14 @@
         mode: "0644"
       become: true
 
+    - name: Copy filesystem.squashfs from ISO
+      ansible.builtin.copy:
+        src: "{{ vyos_mount_point.path }}/live/filesystem.squashfs"
+        dest: "{{ nginx_artifacts_root }}/{{ vyos_netboot_subdir }}/filesystem.squashfs"
+        remote_src: true
+        mode: "0644"
+      become: true
+
   always:
     - name: Unmount VyOS ISO
       ansible.posix.mount:
@@ -101,16 +109,22 @@
       when: vyos_mount_point is defined and vyos_mount_point.path is defined
 
 # --- Force extraction if netboot files don't exist (ISO was already downloaded) ---
-- name: Check if netboot files need extraction (existing ISO)
+- name: Check if vmlinuz exists (existing ISO)
   ansible.builtin.stat:
     path: "{{ nginx_artifacts_root }}/{{ vyos_netboot_subdir }}/vmlinuz"
   register: vyos_vmlinuz_stat
   become: true
 
+- name: Check if squashfs exists (existing ISO)
+  ansible.builtin.stat:
+    path: "{{ nginx_artifacts_root }}/{{ vyos_netboot_subdir }}/filesystem.squashfs"
+  register: vyos_squashfs_stat
+  become: true
+
 - name: Extract netboot files from existing VyOS ISO
   when:
     - vyos_iso_stat.stat.exists
-    - not vyos_vmlinuz_stat.stat.exists
+    - not vyos_vmlinuz_stat.stat.exists or not vyos_squashfs_stat.stat.exists
   block:
     - name: Create temporary mount point (existing ISO)
       ansible.builtin.tempfile:
@@ -140,6 +154,14 @@
       ansible.builtin.copy:
         src: "{{ vyos_mount_point_existing.path }}/live/initrd.img"
         dest: "{{ nginx_artifacts_root }}/{{ vyos_netboot_subdir }}/initrd.img"
+        remote_src: true
+        mode: "0644"
+      become: true
+
+    - name: Copy filesystem.squashfs from existing ISO
+      ansible.builtin.copy:
+        src: "{{ vyos_mount_point_existing.path }}/live/filesystem.squashfs"
+        dest: "{{ nginx_artifacts_root }}/{{ vyos_netboot_subdir }}/filesystem.squashfs"
         remote_src: true
         mode: "0644"
       become: true

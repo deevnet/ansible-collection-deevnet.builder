@@ -19,6 +19,9 @@
 - name: Publish kickstart files
   ansible.builtin.import_tasks: publish_kickstarts.yml
 
+- name: Publish VyOS cloud-init files
+  ansible.builtin.import_tasks: publish_vyos_cloudinit.yml
+
 - name: Ensure Podman is installed (for image artifacts)
   ansible.builtin.dnf:
     name: podman

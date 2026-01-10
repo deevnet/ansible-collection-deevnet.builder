@@ -1,0 +1,68 @@
+#cloud-config
+# VyOS cloud-init configuration for PXE boot installation
+# Managed by Ansible - deevnet.builder.artifacts role
+
+vyos_config_commands:
+  # Configure a_autoprov user with SSH key for Ansible automation
+  - set system login user a_autoprov authentication public-keys autoprov key '{{ artifacts_ssh_keys[0].public_key.split()[1] }}'
+  - set system login user a_autoprov authentication public-keys autoprov type 'ssh-rsa'
+  - set system login user a_autoprov full-name 'Automation User'
+
+  # Enable SSH service
+  - set service ssh port '22'
+
+  # Configure eth0 for DHCP (initial network access)
+  - set interfaces ethernet eth0 address 'dhcp'
+  - set interfaces ethernet eth0 description 'Management'
+
+write_files:
+  # Automated install script - runs before VyOS config on first boot
+  # Only executes on live boot (squashfs root), not on installed system
+  - path: /opt/vyatta/etc/config/scripts/vyos-preconfig-bootup.script
+    owner: root:vyattacfg
+    permissions: '0775'
+    content: |
+      #!/bin/vbash
+      # Automated VyOS installation script
+      # Managed by Ansible - deevnet.builder.artifacts role
+      #
+      # This script detects if running from live boot (squashfs) and
+      # performs automated disk installation with piped answers.
+
+      # Check if already installed (root on disk vs squashfs)
+      if findmnt -n -o SOURCE / | grep -q squashfs; then
+        echo "Live boot detected - running automated install"
+
+        # Wait for cloud-init config to be applied
+        sleep 10
+
+        # Source VyOS functions for operational commands
+        source /opt/vyatta/etc/functions/script-template
+
+        # Pipe answers to install image prompts:
+        # 1. Continue? y
+        # 2. Image name? (accept default)
+        # 3. Password? VyOS-Auto-2024!
+        # 4. Confirm password
+        # 5. Console? K (KVM)
+        # 6. Disk? /dev/sda
+        # 7. Delete data? y
+        # 8. Use all space? Y
+        # 9. Config file? (current running config)
+        printf '%s\n' \
+          "y" \
+          "" \
+          "VyOS-Auto-2024!" \
+          "VyOS-Auto-2024!" \
+          "K" \
+          "/dev/sda" \
+          "y" \
+          "Y" \
+          "/config/config.boot" \
+        | run install image
+
+        # Reboot to installed system
+        run reboot now
+      else
+        echo "Installed system detected - skipping install"
+      fi
