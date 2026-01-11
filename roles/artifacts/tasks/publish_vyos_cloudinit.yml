@@ -28,3 +28,26 @@
     dest: "{{ nginx_artifacts_root }}/cloud-init/vyos/user-data"
     mode: "0644"
   become: true
+
+# --- Host-specific VyOS cloud-init configurations ---
+
+- name: Ensure core-rt01 cloud-init directory exists
+  ansible.builtin.file:
+    path: "{{ nginx_artifacts_root }}/cloud-init/vyos-core-rt01"
+    state: directory
+    mode: "0755"
+  become: true
+
+- name: Deploy core-rt01 meta-data
+  ansible.builtin.template:
+    src: vyos-cloud-init-core-rt01/meta-data.j2
+    dest: "{{ nginx_artifacts_root }}/cloud-init/vyos-core-rt01/meta-data"
+    mode: "0644"
+  become: true
+
+- name: Deploy core-rt01 user-data
+  ansible.builtin.template:
+    src: vyos-cloud-init-core-rt01/user-data.j2
+    dest: "{{ nginx_artifacts_root }}/cloud-init/vyos-core-rt01/user-data"
+    mode: "0644"
+  become: true
