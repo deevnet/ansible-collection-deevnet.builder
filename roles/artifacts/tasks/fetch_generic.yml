@@ -21,6 +21,7 @@
     dest: "{{ nginx_artifacts_root }}/{{ artifact_item.dest_subdir }}/{{ artifact_item.dest_filename }}"
     mode: "0644"
     checksum: "{{ 'sha256:' + artifact_item.sha256 if artifact_item.sha256 is defined else omit }}"
+    timeout: 600  # 10 minutes for generic artifact downloads
     # If the file exists but checksum doesn't match, force re-download
     force: "{{ artifact_stat.stat.exists
               and artifact_item.sha256 is defined

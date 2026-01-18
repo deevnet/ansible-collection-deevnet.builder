@@ -16,6 +16,8 @@
     name: "@anthropic-ai/claude-code"
     global: yes
     state: present
+  async: 600
+  poll: 30
 
 # These next 3 tasks ensure the install type is known to claude (kind of annoying, but /status comes clean after)
 # Ensure ~/.claude exists for each dev user
@@ -78,6 +80,8 @@
     name: "@google/gemini-cli"
     global: yes
     state: present
+  async: 600
+  poll: 30
 
 - name: Install OpenAI Codex CLI dev users
   become: true
@@ -89,3 +93,5 @@
     name: "@openai/codex"
     global: yes
     state: present
+  async: 600
+  poll: 30
