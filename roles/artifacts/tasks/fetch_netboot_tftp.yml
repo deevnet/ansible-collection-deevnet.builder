@@ -23,6 +23,7 @@
     dest: "{{ nginx_artifacts_root }}/{{ artifact_item.dest_subdir }}/vmlinuz"
     mode: "0644"
     checksum: "{{ 'sha256:' + artifact_item.vmlinuz_sha256 if artifact_item.vmlinuz_sha256 is defined else omit }}"
+    timeout: 600  # 10 minutes for netboot file downloads
     force: "{{ vmlinuz_stat.stat.exists
               and artifact_item.vmlinuz_sha256 is defined
               and vmlinuz_stat.stat.checksum is defined
@@ -48,6 +49,7 @@
     dest: "{{ nginx_artifacts_root }}/{{ artifact_item.dest_subdir }}/initrd.img"
     mode: "0644"
     checksum: "{{ 'sha256:' + artifact_item.initrd_sha256 if artifact_item.initrd_sha256 is defined else omit }}"
+    timeout: 600  # 10 minutes for netboot file downloads
     force: "{{ initrd_stat.stat.exists
               and artifact_item.initrd_sha256 is defined
               and initrd_stat.stat.checksum is defined

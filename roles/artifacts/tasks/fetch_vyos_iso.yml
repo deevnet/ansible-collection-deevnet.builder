@@ -45,6 +45,7 @@
     dest: "{{ vyos_iso_dest }}"
     mode: "0644"
     checksum: "{{ 'sha256:' + artifact_item.sha256 if artifact_item.sha256 is defined else omit }}"
+    timeout: 1800  # 30 minutes for ISO downloads
   become: true
   when: not vyos_iso_stat.stat.exists
   register: vyos_iso_download
