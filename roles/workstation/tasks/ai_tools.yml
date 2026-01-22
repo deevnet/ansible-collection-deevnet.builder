@@ -6,69 +6,30 @@
     state: present
   become: true
 
-- name: Install Claude CLI for dev users
+# Migration: Remove old npm-based Claude Code installation
+- name: Uninstall npm-based Claude CLI for dev users (migration)
   become: true
   become_user: "{{ item.name }}"
   loop: "{{ dev_users }}"
   environment:
     NPM_CONFIG_PREFIX: "{{ item.home }}/.npm-global"
-  npm:
-    name: "@anthropic-ai/claude-code"
-    global: yes
-    state: present
+  ansible.builtin.command:
+    cmd: npm uninstall -g @anthropic-ai/claude-code
+  register: npm_uninstall
+  failed_when: false
+  changed_when: npm_uninstall.rc == 0
+
+# Install Claude Code via native installer (auto-updates in background)
+- name: Install Claude CLI via native installer for dev users
+  become: true
+  become_user: "{{ item.name }}"
+  loop: "{{ dev_users }}"
+  ansible.builtin.shell: |
+    curl -fsSL https://claude.ai/install.sh | bash
+  args:
+    creates: "{{ item.home }}/.local/bin/claude"
   async: 600
   poll: 30
-
-# These next 3 tasks ensure the install type is known to claude (kind of annoying, but /status comes clean after)
-# Ensure ~/.claude exists for each dev user
-# 1. Ensure ~/.claude exists for each dev user
-- name: Ensure Claude config directory exists for dev users
-  become: true
-  become_user: "{{ item.name }}"
-  loop: "{{ dev_users }}"
-  file:
-    path: "{{ item.home }}/.claude"
-    state: directory
-    mode: "0755"
-
-
-# 2. Try to read existing settings.json (ok if missing)
-- name: Read existing Claude settings.json (if present)
-  become: true
-  become_user: "{{ item.name }}"
-  loop: "{{ dev_users }}"
-  register: claude_settings_raw
-  failed_when: false          # do not fail if file is missing
-  slurp:
-    path: "{{ item.home }}/.claude/settings.json"
-
-
-# 3. Safely parse + merge JSON, then write it back
-- name: Merge installationType into Claude settings.json (safe JSON modify)
-  become: true
-  become_user: "{{ item.name }}"
-  loop: "{{ dev_users }}"
-  loop_control:
-    index_var: idx
-  vars:
-    # result for this user from the slurp step
-    raw: "{{ claude_settings_raw.results[idx] | default({}) }}"
-
-    # lazily decode JSON only if raw.content exists
-    existing: >-
-      {{
-        (raw.content | b64decode | from_json)
-        if (raw is defined and 'content' in raw)
-        else {}
-      }}
-
-    # merge our key into the existing JSON
-    merged: "{{ existing | combine({'installationType': 'npm-global'}, recursive=True) }}"
-
-  copy:
-    dest: "{{ item.home }}/.claude/settings.json"
-    mode: "0644"
-    content: "{{ merged | to_nice_json }}"
 
 - name: Install Gemini CLI for dev users
   become: true
