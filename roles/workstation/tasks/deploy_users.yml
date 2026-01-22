@@ -143,6 +143,19 @@
   become: true
   become_user: "{{ item.name }}"
 
+- name: Ensure ~/.local/bin is on PATH in dev users' bashrc
+  ansible.builtin.lineinfile:
+    path: "{{ item.home | default('/home/' + item.name) }}/.bashrc"
+    regexp: '\.local/bin'
+    line: 'export PATH="$HOME/.local/bin:$PATH"'
+    insertafter: EOF
+    create: true
+  loop: "{{ dev_users | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"
+  become: true
+  become_user: "{{ item.name }}"
+
 # --- TEMPORARY: dev users full sudo for image-building unblock (remove later) ---
 - name: TEMPORARY - allow devusers full passwordless sudo
   ansible.builtin.copy:
