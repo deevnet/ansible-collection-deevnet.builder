@@ -1,0 +1,49 @@
+# Transition to core router-authoritative mode
+# Disables bootstrap DNS/DHCP/gateway, keeps TFTP only
+#
+# Usage: ansible-playbook playbooks/core-authoritative.yml
+
+- name: Enable core router-authoritative mode
+  hosts: bootstrap_nodes
+  become: true
+
+  vars:
+    bootstrap_wan_interface: wifi
+
+  tasks:
+    - name: Disable masquerading on WAN interface
+      ansible.posix.firewalld:
+        masquerade: true
+        zone: public
+        permanent: true
+        immediate: true
+        state: disabled
+
+    - name: Remove WAN interface from public zone
+      ansible.posix.firewalld:
+        interface: "{{ bootstrap_wan_interface }}"
+        zone: public
+        permanent: true
+        immediate: true
+        state: disabled
+
+    - name: Disable IP forwarding
+      ansible.posix.sysctl:
+        name: net.ipv4.ip_forward
+        value: '0'
+        sysctl_set: true
+        state: present
+        reload: true
+
+    - name: Stop and disable dnsmasq
+      ansible.builtin.systemd:
+        name: dnsmasq
+        state: stopped
+        enabled: false
+      ignore_errors: true
+
+    - name: Apply bootstrap role with standalone TFTP only
+      ansible.builtin.include_role:
+        name: bootstrap
+      vars:
+        bootstrap_tftp_backend: tftpd
