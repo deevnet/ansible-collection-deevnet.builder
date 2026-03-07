@@ -83,6 +83,28 @@
     loop_var: user
   become: true
 
+- name: Configure git user.name for dev users
+  ansible.builtin.command:
+    cmd: git config --global user.name "{{ item.git_name }}"
+  loop: "{{ dev_users | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"
+  become: true
+  become_user: "{{ item.name }}"
+  when: item.git_name is defined
+  changed_when: false
+
+- name: Configure git user.email for dev users
+  ansible.builtin.command:
+    cmd: git config --global user.email "{{ item.git_email }}"
+  loop: "{{ dev_users | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"
+  become: true
+  become_user: "{{ item.name }}"
+  when: item.git_email is defined
+  changed_when: false
+
 - name: Ensure DEEVNET X11 auto-DISPLAY block in .bashrc
   ansible.builtin.blockinfile:
     path: "{{ item.home | default('/home/' + item.name) }}/.bashrc"
