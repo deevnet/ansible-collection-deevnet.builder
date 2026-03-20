@@ -44,3 +44,7 @@
       - chrony
       - acl   # Required for Ansible become_user privilege escalation
     state: present
+
+- name: Configure network interfaces
+  ansible.builtin.include_tasks: configure_interfaces.yml
+  when: env.interfaces is defined

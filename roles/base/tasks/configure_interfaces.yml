@@ -1,0 +1,25 @@
+---
+# roles/base/tasks/configure_interfaces.yml
+# Configure network interfaces with a defined IP in inventory
+#
+# Iterates over env.interfaces entries where ip is defined and not null,
+# discovers the OS interface name by matching MAC address,
+# and ensures a NetworkManager connection is active (DHCP or static).
+
+- name: Build list of managed interfaces
+  ansible.builtin.set_fact:
+    _managed_interfaces: >-
+      {{
+        env.interfaces
+        | dict2items
+        | selectattr('value.ip', 'defined')
+        | rejectattr('value.ip', 'none')
+        | map(attribute='key')
+        | list
+      }}
+
+- name: Configure managed interfaces
+  ansible.builtin.include_tasks: configure_single_interface.yml
+  loop: "{{ _managed_interfaces }}"
+  loop_control:
+    loop_var: _iface_key

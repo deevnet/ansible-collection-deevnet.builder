@@ -1,0 +1,133 @@
+---
+# roles/base/tasks/configure_single_interface.yml
+# Configure a single network interface by MAC-based discovery
+#
+# Supports DHCP (ip == 'dhcp') and static (ip is an address with gateway/prefix).
+#
+# Requires:
+#   _iface_key: Logical interface key from inventory (e.g. 'eth0', 'eth1')
+
+- name: Set interface config facts for {{ _iface_key }}
+  ansible.builtin.set_fact:
+    _target_mac: "{{ infrastructure.interfaces[_iface_key].mac | lower }}"
+    _iface_ip: "{{ env.interfaces[_iface_key].ip }}"
+    _iface_gateway: "{{ env.interfaces[_iface_key].gateway | default(omit) }}"
+    _iface_prefix: "{{ env.interfaces[_iface_key].prefix | default(omit) }}"
+
+- name: Find OS interface matching MAC {{ _target_mac }}
+  ansible.builtin.set_fact:
+    _discovered_iface: "{{ item }}"
+  loop: "{{ ansible_interfaces }}"
+  when:
+    - hostvars[inventory_hostname]['ansible_' + item] is defined
+    - hostvars[inventory_hostname]['ansible_' + item].macaddress is defined
+    - hostvars[inventory_hostname]['ansible_' + item].macaddress | lower == _target_mac
+
+- name: Fail if interface not found for MAC {{ _target_mac }}
+  ansible.builtin.fail:
+    msg: "No interface found with MAC {{ _target_mac }} (inventory key: {{ _iface_key }})"
+  when: _discovered_iface is not defined
+
+- name: Check for existing connection on {{ _discovered_iface }}
+  become: true
+  ansible.builtin.command:
+    cmd: nmcli -t -f NAME connection show --active
+  register: _nmcli_active
+  changed_when: false
+
+# --- DHCP path ---
+
+- name: Check existing connection config for {{ _discovered_iface }} (DHCP)
+  become: true
+  ansible.builtin.command:
+    cmd: nmcli -t -f connection.autoconnect,ipv4.method connection show {{ _discovered_iface }}
+  register: _nmcli_existing_dhcp
+  changed_when: false
+  failed_when: false
+  when: _iface_ip == 'dhcp'
+
+- name: Create DHCP connection for {{ _discovered_iface }}
+  become: true
+  ansible.builtin.command:
+    cmd: >-
+      nmcli connection add
+      con-name {{ _iface_key }}
+      type ethernet
+      ifname {{ _discovered_iface }}
+      ipv4.method auto
+      connection.autoconnect yes
+  when:
+    - _iface_ip == 'dhcp'
+    - _nmcli_existing_dhcp.rc != 0
+
+- name: Ensure DHCP and autoconnect on existing connection {{ _discovered_iface }}
+  become: true
+  ansible.builtin.command:
+    cmd: >-
+      nmcli connection modify {{ _discovered_iface }}
+      ipv4.method auto
+      connection.autoconnect yes
+  when:
+    - _iface_ip == 'dhcp'
+    - _nmcli_existing_dhcp.rc == 0
+    - _nmcli_existing_dhcp.stdout_lines | reject('in', ['connection.autoconnect:yes', 'ipv4.method:auto']) | list | length > 0
+
+# --- Static IP path ---
+
+- name: Check existing connection config for {{ _discovered_iface }} (static)
+  become: true
+  ansible.builtin.command:
+    cmd: nmcli -t -f connection.autoconnect,ipv4.method,ipv4.addresses,ipv4.gateway connection show {{ _discovered_iface }}
+  register: _nmcli_existing_static
+  changed_when: false
+  failed_when: false
+  when: _iface_ip != 'dhcp'
+
+- name: Set desired static config for {{ _discovered_iface }}
+  ansible.builtin.set_fact:
+    _desired_static_lines:
+      - "connection.autoconnect:yes"
+      - "ipv4.method:manual"
+      - "ipv4.addresses:{{ _iface_ip }}/{{ _iface_prefix }}"
+      - "ipv4.gateway:{{ _iface_gateway }}"
+  when: _iface_ip != 'dhcp'
+
+- name: Create static connection for {{ _discovered_iface }}
+  become: true
+  ansible.builtin.command:
+    cmd: >-
+      nmcli connection add
+      con-name {{ _iface_key }}
+      type ethernet
+      ifname {{ _discovered_iface }}
+      ipv4.method manual
+      ipv4.addresses {{ _iface_ip }}/{{ _iface_prefix }}
+      ipv4.gateway {{ _iface_gateway }}
+      connection.autoconnect yes
+  when:
+    - _iface_ip != 'dhcp'
+    - _nmcli_existing_static.rc != 0
+
+- name: Ensure static IP config on existing connection {{ _discovered_iface }}
+  become: true
+  ansible.builtin.command:
+    cmd: >-
+      nmcli connection modify {{ _discovered_iface }}
+      ipv4.method manual
+      ipv4.addresses {{ _iface_ip }}/{{ _iface_prefix }}
+      ipv4.gateway {{ _iface_gateway }}
+      connection.autoconnect yes
+  when:
+    - _iface_ip != 'dhcp'
+    - _nmcli_existing_static.rc == 0
+    - _nmcli_existing_static.stdout_lines | difference(_desired_static_lines) | length > 0 or
+      _desired_static_lines | difference(_nmcli_existing_static.stdout_lines) | length > 0
+
+# --- Bring up (both paths) ---
+
+- name: Bring up connection for {{ _discovered_iface }}
+  become: true
+  ansible.builtin.command:
+    cmd: nmcli connection up {{ _discovered_iface }}
+  when: _discovered_iface not in _nmcli_active.stdout
+  changed_when: true
