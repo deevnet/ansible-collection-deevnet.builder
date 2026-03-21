@@ -67,6 +67,7 @@
       nmcli connection modify {{ _discovered_iface }}
       ipv4.method auto
       connection.autoconnect yes
+  register: _nmcli_modify_dhcp
   when:
     - _iface_ip == 'dhcp'
     - _nmcli_existing_dhcp.rc == 0
@@ -117,13 +118,14 @@
       ipv4.addresses {{ _iface_ip }}/{{ _iface_prefix }}
       ipv4.gateway {{ _iface_gateway }}
       connection.autoconnect yes
+  register: _nmcli_modify_static
   when:
     - _iface_ip != 'dhcp'
     - _nmcli_existing_static.rc == 0
     - _nmcli_existing_static.stdout_lines | difference(_desired_static_lines) | length > 0 or
       _desired_static_lines | difference(_nmcli_existing_static.stdout_lines) | length > 0
 
-# --- Bring up (both paths) ---
+# --- Bring up / reload (both paths) ---
 
 - name: Bring up connection for {{ _discovered_iface }}
   become: true
@@ -131,3 +133,18 @@
     cmd: nmcli connection up {{ _discovered_iface }}
   when: _discovered_iface not in _nmcli_active.stdout
   changed_when: true
+
+# Reload an already-active connection after config changes. Uses async
+# fire-and-forget because changing the IP of the interface Ansible is
+# connected through will kill the SSH session (e.g. control node
+# reconfiguring its own management interface during migration).
+- name: Reload active connection for {{ _discovered_iface }}
+  become: true
+  ansible.builtin.command:
+    cmd: nmcli connection up {{ _discovered_iface }}
+  async: 10
+  poll: 0
+  when:
+    - _discovered_iface in _nmcli_active.stdout
+    - (_nmcli_modify_dhcp is defined and _nmcli_modify_dhcp is changed) or
+      (_nmcli_modify_static is defined and _nmcli_modify_static is changed)
