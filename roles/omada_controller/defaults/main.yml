@@ -45,6 +45,9 @@ omada_ports:
   - host: 29814
     container: 29814
     protocol: udp
+  - host: 29814
+    container: 29814
+    protocol: tcp
   # Device discovery and adoption
   - host: 27001
     container: 27001
@@ -95,6 +98,7 @@ omada_firewall_ports_tcp:
   - 29811
   - 29812
   - 29813
+  - 29814
   - 27002
 
 omada_firewall_ports_udp:
