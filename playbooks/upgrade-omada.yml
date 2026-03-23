@@ -1,0 +1,100 @@
+---
+# Upgrade Omada controller to a new version
+#
+# Usage:
+#   cd ansible-collection-deevnet.builder
+#   make rebuild
+#   ansible-playbook playbooks/upgrade-omada.yml
+#
+# This playbook:
+#   1. Pulls the new container image directly (bypasses artifact server)
+#   2. Clears existing data directories for a clean v6 install
+#   3. Runs the omada_controller role to recreate everything
+#
+# WARNING: This destroys existing Omada config/database.
+# Only use for fresh installs or when you have a backup to restore.
+
+- name: Upgrade Omada Controller
+  hosts: network_controllers
+  become: true
+  vars:
+    omada_fresh_install: true
+  tasks:
+    - name: Stop omada-controller service
+      ansible.builtin.systemd:
+        name: omada-controller
+        state: stopped
+      ignore_errors: true
+
+    - name: Remove existing container
+      ansible.builtin.command:
+        cmd: "podman rm -f {{ omada_container_name | default('omada-controller') }}"
+      ignore_errors: true
+
+    - name: Pull new image directly from registry
+      ansible.builtin.command:
+        cmd: "podman pull {{ omada_image_name }}:{{ omada_image_tag }}"
+      register: pull_result
+      changed_when: "'Storing signatures' in pull_result.stdout or 'Writing manifest' in pull_result.stdout"
+
+    - name: Display pulled image
+      ansible.builtin.debug:
+        msg: "{{ pull_result.stdout_lines | last }}"
+
+    - name: Clear data directories for fresh v6 install
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ omada_data_dirs }}"
+      when: omada_fresh_install | default(false)
+
+    - name: Recreate data directories
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: directory
+        mode: "{{ item.mode }}"
+      loop: "{{ omada_data_dirs }}"
+
+    - name: Configure SELinux for container volumes
+      ansible.builtin.import_role:
+        name: omada_controller
+        tasks_from: setup_selinux.yml
+
+    - name: Create new container
+      ansible.builtin.command:
+        cmd: >
+          podman create
+          --name {{ omada_container_name | default('omada-controller') }}
+          --hostname omada-controller
+          {% for port in omada_ports %}
+          -p {{ port.host }}:{{ port.container }}/{{ port.protocol }}
+          {% endfor %}
+          {% for volume in omada_volumes %}
+          -v {{ volume.host }}:{{ volume.container }}
+          {% endfor %}
+          {% for env in omada_env_vars %}
+          -e "{{ env }}"
+          {% endfor %}
+          --restart=no
+          {{ omada_image_name }}:{{ omada_image_tag }}
+      changed_when: true
+
+    - name: Start omada-controller service
+      ansible.builtin.systemd:
+        name: omada-controller
+        state: started
+        daemon_reload: true
+
+    - name: Wait for controller to initialize
+      ansible.builtin.uri:
+        url: "https://localhost:8043"
+        validate_certs: false
+        status_code: [200, 302]
+      register: health
+      retries: 12
+      delay: 10
+      until: health.status in [200, 302]
+
+    - name: Display result
+      ansible.builtin.debug:
+        msg: "Omada controller {{ omada_image_tag }} is running. Access at https://{{ ansible_host }}:8043"

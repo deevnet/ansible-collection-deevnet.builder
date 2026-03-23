@@ -8,6 +8,13 @@
   changed_when: "'Loaded image' in podman_load_result.stdout or 'Getting image source signatures' in podman_load_result.stdout"
   become: true
 
+- name: Stop omada-controller service if running
+  ansible.builtin.systemd:
+    name: omada-controller
+    state: stopped
+  become: true
+  ignore_errors: true
+
 - name: Check if omada controller container already exists
   ansible.builtin.command:
     cmd: "podman container exists {{ omada_container_name }}"

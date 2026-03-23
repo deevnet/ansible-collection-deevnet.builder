@@ -5,7 +5,7 @@
 # Container image configuration
 # This should match the tarball created by the artifacts role
 omada_image_name: "docker.io/mbentley/omada-controller"
-omada_image_tag: "5.12"
+omada_image_tag: "6.1"
 omada_tarball_filename: "omada-controller-latest.tar"
 omada_tarball_url: "http://127.0.0.1/container-images/omada-controller/{{ omada_tarball_filename }}"
 
