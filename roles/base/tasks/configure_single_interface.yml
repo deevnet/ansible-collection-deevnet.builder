@@ -15,6 +15,7 @@
     _iface_prefix: "{{ env.interfaces[_iface_key].prefix | default(omit) }}"
     _iface_dns_servers: "{{ env.interfaces[_iface_key].dns_servers | default('') }}"
     _iface_dns_search: "{{ env.interfaces[_iface_key].dns_search | default('') }}"
+    _iface_routes: "{{ env.interfaces[_iface_key].routes | default([]) }}"
 
 - name: Find OS interface matching MAC {{ _target_mac }}
   ansible.builtin.set_fact:
@@ -80,7 +81,7 @@
 - name: Check existing connection config for {{ _discovered_iface }} (static)
   become: true
   ansible.builtin.command:
-    cmd: nmcli -t -f connection.autoconnect,ipv4.method,ipv4.addresses,ipv4.gateway,ipv4.dns,ipv4.dns-search connection show {{ _discovered_iface }}
+    cmd: nmcli -t -f connection.autoconnect,ipv4.method,ipv4.addresses,ipv4.gateway,ipv4.dns,ipv4.dns-search,ipv4.routes connection show {{ _discovered_iface }}
   register: _nmcli_existing_static
   changed_when: false
   failed_when: false
@@ -112,6 +113,7 @@
       ipv4.gateway {{ _iface_gateway }}
       {{ 'ipv4.dns ' ~ _iface_dns_servers if _iface_dns_servers else '' }}
       {{ 'ipv4.dns-search "' ~ _iface_dns_search ~ '"' if _iface_dns_search else '' }}
+      {{ 'ipv4.routes "' ~ _iface_routes | join(', ') ~ '"' if _iface_routes else '' }}
       connection.autoconnect yes
   when:
     - _iface_ip != 'dhcp'
@@ -127,6 +129,7 @@
       ipv4.gateway {{ _iface_gateway }}
       {{ 'ipv4.dns ' ~ _iface_dns_servers if _iface_dns_servers else '' }}
       {{ 'ipv4.dns-search "' ~ _iface_dns_search ~ '"' if _iface_dns_search else '' }}
+      {{ 'ipv4.routes "' ~ _iface_routes | join(', ') ~ '"' if _iface_routes else '' }}
       connection.autoconnect yes
   register: _nmcli_modify_static
   when:
