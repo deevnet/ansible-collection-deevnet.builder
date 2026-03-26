@@ -15,6 +15,11 @@ dhcp-option=option:dns-server,{{ bootstrap_dhcp_dns_servers | join(',') }}
 dhcp-option=option:domain-name,{{ bootstrap_dhcp_domain }}
 {% endif %}
 
+# Static DHCP Reservations (from inventory)
+{% for host in bootstrap_dhcp_reservations | default([]) %}
+dhcp-host={{ host.mac }},{{ host.hostname }},{{ host.ip }}
+{% endfor %}
+
 # PXE Boot Configuration with Architecture Detection
 {% if bootstrap_uefi_enabled %}
 # DHCP Option 93 (Client System Architecture) matching
@@ -44,12 +49,22 @@ tftp-secure
 
 # DNS Configuration
 {% if bootstrap_enable_dns %}
-# DNS enabled
+# DNS enabled - upstream forwarding
 {% if bootstrap_dns_upstream_servers | length > 0 %}
 {% for server in bootstrap_dns_upstream_servers %}
 server={{ server }}
 {% endfor %}
 {% endif %}
+
+# DNS Host Records (from inventory)
+{% for host in bootstrap_dns_host_records | default([]) %}
+address=/{{ host.hostname }}.{{ bootstrap_dhcp_domain }}/{{ host.ip }}
+{% endfor %}
+
+# DNS CNAME Records (from inventory)
+{% for cname in bootstrap_dns_cname_records | default([]) %}
+cname={{ cname.name }}.{{ bootstrap_dhcp_domain }},{{ cname.target_host }}.{{ bootstrap_dhcp_domain }}
+{% endfor %}
 {% else %}
 # DNS disabled - only DHCP and TFTP
 port=0

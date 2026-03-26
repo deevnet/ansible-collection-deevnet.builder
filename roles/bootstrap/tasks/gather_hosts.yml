@@ -1,0 +1,121 @@
+---
+# roles/bootstrap/tasks/gather_hosts.yml
+# Build DNS host records and DHCP static reservations from inventory
+# for dnsmasq configuration in bootstrap-authoritative mode.
+#
+# Uses the same inventory data patterns as opnsense_dns and opnsense_dhcp roles:
+#   env.interfaces.<name>.dns.host_a_record
+#   env.interfaces.<name>.dns.cnames
+#   env.interfaces.<name>.dns.dhcp_reservation
+#   env.interfaces.<name>.segment
+#   infrastructure.interfaces.<name>.mac
+#
+# Sets:
+#   bootstrap_dns_host_records: [{hostname, ip, cnames}]
+#   bootstrap_dns_cname_records: [{name, target_host, target_ip}]
+#   bootstrap_dhcp_reservations: [{hostname, mac, ip}]
+
+- name: Initialize DNS and DHCP record lists
+  ansible.builtin.set_fact:
+    bootstrap_dns_host_records: []
+    bootstrap_dns_cname_records: []
+    bootstrap_dhcp_reservations: []
+
+# DNS A records - all hosts with host_a_record: true (any segment)
+- name: Build DNS host A records from inventory
+  ansible.builtin.set_fact:
+    bootstrap_dns_host_records: >-
+      {{
+        bootstrap_dns_host_records + [{
+          'hostname': item,
+          'ip': _dns_ip,
+          'cnames': _dns_cnames
+        }]
+      }}
+  loop: "{{ groups['all'] }}"
+  when:
+    - hostvars[item]['env'] is defined
+    - hostvars[item]['env']['interfaces'] is defined
+    - _dns_interface | length > 0
+    - _dns_ip is defined
+    - _dns_ip not in ['dhcp', 'null', none, '']
+  vars:
+    _interfaces: "{{ hostvars[item]['env']['interfaces'] | dict2items }}"
+    _dns_interface: >-
+      {{
+        _interfaces
+        | selectattr('value.dns', 'defined')
+        | selectattr('value.dns.host_a_record', 'defined')
+        | selectattr('value.dns.host_a_record', 'equalto', true)
+        | first
+        | default({})
+      }}
+    _dns_ip: "{{ _dns_interface.value.ip | default(none) }}"
+    _dns_cnames: "{{ _dns_interface.value.dns.cnames | default([]) }}"
+
+# CNAME records - flattened from host records
+- name: Build CNAME records from host records
+  ansible.builtin.set_fact:
+    bootstrap_dns_cname_records: >-
+      {{
+        bootstrap_dns_cname_records + [{
+          'name': item.1,
+          'target_host': item.0.hostname,
+          'target_ip': item.0.ip
+        }]
+      }}
+  loop: "{{ bootstrap_dns_host_records | subelements('cnames', skip_missing=true) }}"
+  loop_control:
+    label: "{{ item.1 }} -> {{ item.0.hostname }}"
+
+# DHCP reservations - management segment hosts with dhcp_reservation: true
+- name: Build DHCP static reservations from inventory (management segment)
+  ansible.builtin.set_fact:
+    bootstrap_dhcp_reservations: >-
+      {{
+        bootstrap_dhcp_reservations + [{
+          'hostname': item,
+          'mac': _mac | lower,
+          'ip': _ip
+        }]
+      }}
+  loop: "{{ groups['all'] }}"
+  when:
+    - hostvars[item]['env'] is defined
+    - hostvars[item]['env']['interfaces'] is defined
+    - hostvars[item]['infrastructure'] is defined
+    - hostvars[item]['infrastructure']['interfaces'] is defined
+    - _dhcp_interface | length > 0
+    - _mac is defined
+    - _mac not in ['UNKNOWN', 'unknown', '']
+    - _ip is defined
+    - _ip not in ['dhcp', 'null', none, '']
+  vars:
+    _env_interfaces: "{{ hostvars[item]['env']['interfaces'] | dict2items }}"
+    _infra_interfaces: "{{ hostvars[item]['infrastructure']['interfaces'] }}"
+    _dhcp_interface: >-
+      {{
+        _env_interfaces
+        | selectattr('value.dns', 'defined')
+        | selectattr('value.dns.dhcp_reservation', 'defined')
+        | selectattr('value.dns.dhcp_reservation', 'equalto', true)
+        | selectattr('value.segment', 'defined')
+        | selectattr('value.segment', 'equalto', 'management')
+        | first
+        | default({})
+      }}
+    _interface_name: "{{ _dhcp_interface.key | default('') }}"
+    _ip: "{{ _dhcp_interface.value.ip | default(none) }}"
+    _mac: "{{ _infra_interfaces[_interface_name].mac | default('') if _interface_name and _interface_name in _infra_interfaces else '' }}"
+
+- name: Display DNS host records
+  ansible.builtin.debug:
+    msg: "DNS A records: {{ bootstrap_dns_host_records | map(attribute='hostname') | list }}"
+
+- name: Display DNS CNAME records
+  ansible.builtin.debug:
+    msg: "DNS CNAMEs: {{ bootstrap_dns_cname_records | map(attribute='name') | list }}"
+
+- name: Display DHCP reservations
+  ansible.builtin.debug:
+    msg: "DHCP reservations: {{ bootstrap_dhcp_reservations | map(attribute='hostname') | list }}"

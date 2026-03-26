@@ -42,10 +42,15 @@ bootstrap_dhcp_range_start: "192.168.1.100"
 bootstrap_dhcp_range_end: "192.168.1.199"
 bootstrap_dhcp_lease_time: "12h"
 
-# Network interface for DHCP/TFTP/DNS services
+# Network interface for DHCP/TFTP/DNS services (downstream/LAN)
 # This is the KEY in infrastructure.interfaces (e.g., "eth0", "mgmt")
 # The actual OS interface is discovered from the MAC address at runtime
 bootstrap_dhcp_interface_key: "eth0"
+
+# Network interface for upstream/WAN connectivity (bootstrap-authoritative mode)
+# Used by authority transition playbooks for masquerading and IP forwarding
+# This is the KEY in infrastructure.interfaces (OS interface discovered from MAC)
+bootstrap_wan_interface_key: "eth1"
 
 # DHCP network options
 bootstrap_dhcp_gateway: "192.168.1.1"

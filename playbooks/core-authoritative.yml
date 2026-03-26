@@ -1,16 +1,88 @@
 # Transition to core router-authoritative mode
 # Disables bootstrap DNS/DHCP/gateway, keeps TFTP only
 #
+# This playbook:
+#   1. Disables masquerading and IP forwarding
+#   2. Stops dnsmasq and switches to standalone TFTP
+#   3. Swaps the management interface IP from gateway (.1) to reserved (.95)
+#
+# The IP swap is the last step because it drops the SSH connection.
+# All config work completes first while connectivity is stable.
+#
 # Usage: ansible-playbook playbooks/core-authoritative.yml
+#   or:  make core-auth
 
 - name: Enable core router-authoritative mode
   hosts: bootstrap_nodes
   become: true
+  gather_facts: true
 
   vars:
-    bootstrap_wan_interface: wifi
+    # IPs derived from inventory
+    _production_ip: "{{ env.interfaces[bootstrap_dhcp_interface_key].ip }}"
+    _bootstrap_ip: "{{ bootstrap_dhcp_gateway }}"
+    _prefix: "{{ env.interfaces[bootstrap_dhcp_interface_key].prefix }}"
+    _gateway: "{{ env.interfaces[bootstrap_dhcp_interface_key].gateway }}"
 
   tasks:
+    # --- Discover interfaces ---
+
+    - name: Get MAC address for WAN interface ({{ bootstrap_wan_interface_key }})
+      ansible.builtin.set_fact:
+        _wan_target_mac: "{{ infrastructure.interfaces[bootstrap_wan_interface_key].mac | lower }}"
+
+    - name: Discover WAN OS interface from MAC
+      ansible.builtin.set_fact:
+        bootstrap_wan_interface: "{{ item }}"
+      loop: "{{ ansible_interfaces }}"
+      when:
+        - hostvars[inventory_hostname]['ansible_' + item] is defined
+        - hostvars[inventory_hostname]['ansible_' + item].macaddress is defined
+        - hostvars[inventory_hostname]['ansible_' + item].macaddress | lower == _wan_target_mac
+
+    - name: Fail if WAN interface not found
+      ansible.builtin.fail:
+        msg: "No interface found with MAC {{ _wan_target_mac }} (inventory key: {{ bootstrap_wan_interface_key }})"
+      when: bootstrap_wan_interface is not defined
+
+    - name: Get MAC address for management interface ({{ bootstrap_dhcp_interface_key }})
+      ansible.builtin.set_fact:
+        _mgmt_target_mac: "{{ infrastructure.interfaces[bootstrap_dhcp_interface_key].mac | lower }}"
+
+    - name: Discover management OS interface from MAC
+      ansible.builtin.set_fact:
+        _mgmt_interface: "{{ item }}"
+      loop: "{{ ansible_interfaces }}"
+      when:
+        - hostvars[inventory_hostname]['ansible_' + item] is defined
+        - hostvars[inventory_hostname]['ansible_' + item].macaddress is defined
+        - hostvars[inventory_hostname]['ansible_' + item].macaddress | lower == _mgmt_target_mac
+
+    - name: Fail if management interface not found
+      ansible.builtin.fail:
+        msg: "No interface found with MAC {{ _mgmt_target_mac }} (inventory key: {{ bootstrap_dhcp_interface_key }})"
+      when: _mgmt_interface is not defined
+
+    - name: Get NetworkManager connection name for management interface
+      ansible.builtin.command:
+        cmd: "nmcli -t -f GENERAL.CONNECTION device show {{ _mgmt_interface }}"
+      register: _nm_conn_result
+      changed_when: false
+
+    - name: Set NM connection name
+      ansible.builtin.set_fact:
+        _nm_conn: "{{ _nm_conn_result.stdout | regex_replace('^GENERAL.CONNECTION:', '') }}"
+
+    - name: Display transition plan
+      ansible.builtin.debug:
+        msg: >-
+          Management interface: {{ _mgmt_interface }} (NM connection: {{ _nm_conn }})
+          — IP swap: {{ _bootstrap_ip }}/{{ _prefix }} → {{ _production_ip }}/{{ _prefix }}
+          — Default gateway will be restored to {{ _gateway }}
+          — WAN interface: {{ bootstrap_wan_interface }}
+
+    # --- Disable services (while SSH is stable) ---
+
     - name: Disable masquerading on WAN interface
       ansible.posix.firewalld:
         masquerade: true
@@ -47,3 +119,63 @@
         name: bootstrap
       vars:
         bootstrap_tftp_backend: tftpd
+
+    # --- Validate services ---
+
+    - name: Verify dnsmasq is stopped
+      ansible.builtin.systemd:
+        name: dnsmasq
+      register: _dnsmasq_status
+      ignore_errors: true
+
+    - name: Warn if dnsmasq is still running
+      ansible.builtin.debug:
+        msg: "WARNING: dnsmasq is still running ({{ _dnsmasq_status.status.ActiveState | default('unknown') }})"
+      when:
+        - _dnsmasq_status is succeeded
+        - _dnsmasq_status.status.ActiveState | default('inactive') == 'active'
+
+    - name: Verify TFTP port is open
+      ansible.builtin.wait_for:
+        port: 69
+        timeout: 5
+        msg: "TFTP port 69 is not listening"
+
+    - name: Log authority transition
+      ansible.builtin.lineinfile:
+        path: /var/log/authority-transitions.log
+        line: "{{ ansible_date_time.iso8601 }} REVERT core-authoritative by {{ lookup('env', 'USER') }} on {{ inventory_hostname }}"
+        create: true
+        mode: "0644"
+
+    # --- IP swap (last step — drops SSH connection) ---
+
+    - name: Check if production IP is already configured
+      ansible.builtin.command:
+        cmd: "ip addr show {{ _mgmt_interface }}"
+      register: _ip_check
+      changed_when: false
+
+    - name: Skip IP swap if already on production IP
+      ansible.builtin.debug:
+        msg: "Management interface already has production IP {{ _production_ip }} — skipping swap"
+      when: _production_ip in _ip_check.stdout
+
+    - name: Swap management IP to production reserved (fire-and-forget)
+      ansible.builtin.shell: |
+        # Add production IP, remove bootstrap IP, restore gateway, apply
+        nmcli connection modify '{{ _nm_conn }}' +ipv4.addresses '{{ _production_ip }}/{{ _prefix }}'
+        nmcli connection modify '{{ _nm_conn }}' -ipv4.addresses '{{ _bootstrap_ip }}/{{ _prefix }}'
+        # Restore default gateway — core router is the gateway in production mode
+        nmcli connection modify '{{ _nm_conn }}' ipv4.gateway '{{ _gateway }}'
+        nmcli connection up '{{ _nm_conn }}'
+      async: 30
+      poll: 0
+      when: _production_ip not in _ip_check.stdout
+
+    - name: Confirm transition initiated
+      ansible.builtin.debug:
+        msg: >-
+          Core router-authoritative mode enabled. Management IP swapping to {{ _production_ip }}.
+          SSH connection will drop. Reconnect at {{ _production_ip }} to verify.
+      when: _production_ip not in _ip_check.stdout

@@ -1,16 +1,86 @@
 # Enable bootstrap-authoritative mode
-# Makes the bootstrap node the DNS/DHCP/gateway for the substrate network
+# Makes the bootstrap node the DNS/DHCP/gateway for the management subnet
+#
+# This playbook:
+#   1. Configures IP forwarding and masquerading on the WAN interface
+#   2. Activates dnsmasq for DNS/DHCP/TFTP with host records from inventory
+#   3. Swaps the management interface IP from reserved (.95) to gateway (.1)
+#
+# The IP swap is the last step because it drops the SSH connection.
+# All config work completes first while connectivity is stable.
 #
 # Usage: ansible-playbook playbooks/bootstrap-authoritative.yml
+#   or:  make bootstrap-auth
 
 - name: Enable bootstrap-authoritative mode
   hosts: bootstrap_nodes
   become: true
+  gather_facts: true
 
   vars:
-    bootstrap_wan_interface: wifi
+    # IPs derived from inventory
+    _production_ip: "{{ env.interfaces[bootstrap_dhcp_interface_key].ip }}"
+    _bootstrap_ip: "{{ bootstrap_dhcp_gateway }}"
+    _prefix: "{{ env.interfaces[bootstrap_dhcp_interface_key].prefix }}"
 
   tasks:
+    # --- Discover interfaces ---
+
+    - name: Get MAC address for WAN interface ({{ bootstrap_wan_interface_key }})
+      ansible.builtin.set_fact:
+        _wan_target_mac: "{{ infrastructure.interfaces[bootstrap_wan_interface_key].mac | lower }}"
+
+    - name: Discover WAN OS interface from MAC
+      ansible.builtin.set_fact:
+        bootstrap_wan_interface: "{{ item }}"
+      loop: "{{ ansible_interfaces }}"
+      when:
+        - hostvars[inventory_hostname]['ansible_' + item] is defined
+        - hostvars[inventory_hostname]['ansible_' + item].macaddress is defined
+        - hostvars[inventory_hostname]['ansible_' + item].macaddress | lower == _wan_target_mac
+
+    - name: Fail if WAN interface not found
+      ansible.builtin.fail:
+        msg: "No interface found with MAC {{ _wan_target_mac }} (inventory key: {{ bootstrap_wan_interface_key }})"
+      when: bootstrap_wan_interface is not defined
+
+    - name: Get MAC address for management interface ({{ bootstrap_dhcp_interface_key }})
+      ansible.builtin.set_fact:
+        _mgmt_target_mac: "{{ infrastructure.interfaces[bootstrap_dhcp_interface_key].mac | lower }}"
+
+    - name: Discover management OS interface from MAC
+      ansible.builtin.set_fact:
+        _mgmt_interface: "{{ item }}"
+      loop: "{{ ansible_interfaces }}"
+      when:
+        - hostvars[inventory_hostname]['ansible_' + item] is defined
+        - hostvars[inventory_hostname]['ansible_' + item].macaddress is defined
+        - hostvars[inventory_hostname]['ansible_' + item].macaddress | lower == _mgmt_target_mac
+
+    - name: Fail if management interface not found
+      ansible.builtin.fail:
+        msg: "No interface found with MAC {{ _mgmt_target_mac }} (inventory key: {{ bootstrap_dhcp_interface_key }})"
+      when: _mgmt_interface is not defined
+
+    - name: Get NetworkManager connection name for management interface
+      ansible.builtin.command:
+        cmd: "nmcli -t -f GENERAL.CONNECTION device show {{ _mgmt_interface }}"
+      register: _nm_conn_result
+      changed_when: false
+
+    - name: Set NM connection name
+      ansible.builtin.set_fact:
+        _nm_conn: "{{ _nm_conn_result.stdout | regex_replace('^GENERAL.CONNECTION:', '') }}"
+
+    - name: Display transition plan
+      ansible.builtin.debug:
+        msg: >-
+          Management interface: {{ _mgmt_interface }} (NM connection: {{ _nm_conn }})
+          — IP swap: {{ _production_ip }}/{{ _prefix }} → {{ _bootstrap_ip }}/{{ _prefix }}
+          — WAN interface: {{ bootstrap_wan_interface }}
+
+    # --- Configure services (while SSH is stable) ---
+
     - name: Get upstream DNS from resolv.conf
       ansible.builtin.slurp:
         src: /etc/resolv.conf
@@ -52,6 +122,67 @@
         immediate: true
         state: enabled
 
-    - name: Apply bootstrap role with DNS/DHCP enabled
+    - name: Apply bootstrap role with dnsmasq providing DNS/DHCP/TFTP
       ansible.builtin.include_role:
         name: bootstrap
+      vars:
+        bootstrap_tftp_backend: dnsmasq
+        bootstrap_dnsmasq_dhcp_enabled: true
+        bootstrap_dnsmasq_service_enabled: true
+
+    # --- Validate services ---
+
+    - name: Verify dnsmasq is running
+      ansible.builtin.systemd:
+        name: dnsmasq
+      register: _dnsmasq_status
+
+    - name: Fail if dnsmasq is not running
+      ansible.builtin.fail:
+        msg: "dnsmasq is not running — cannot proceed with IP swap"
+      when: _dnsmasq_status.status.ActiveState != 'active'
+
+    - name: Verify TFTP port is open
+      ansible.builtin.wait_for:
+        port: 69
+        timeout: 5
+        msg: "TFTP port 69 is not listening"
+
+    - name: Log authority transition
+      ansible.builtin.lineinfile:
+        path: /var/log/authority-transitions.log
+        line: "{{ ansible_date_time.iso8601 }} PROMOTE bootstrap-authoritative by {{ lookup('env', 'USER') }} on {{ inventory_hostname }}"
+        create: true
+        mode: "0644"
+
+    # --- IP swap (last step — drops SSH connection) ---
+
+    - name: Check if bootstrap IP is already configured
+      ansible.builtin.command:
+        cmd: "ip addr show {{ _mgmt_interface }}"
+      register: _ip_check
+      changed_when: false
+
+    - name: Skip IP swap if already on bootstrap IP
+      ansible.builtin.debug:
+        msg: "Management interface already has bootstrap IP {{ _bootstrap_ip }} — skipping swap"
+      when: _bootstrap_ip in _ip_check.stdout
+
+    - name: Swap management IP to bootstrap gateway (fire-and-forget)
+      ansible.builtin.shell: |
+        # Add bootstrap IP, remove production IP, apply
+        nmcli connection modify '{{ _nm_conn }}' +ipv4.addresses '{{ _bootstrap_ip }}/{{ _prefix }}'
+        nmcli connection modify '{{ _nm_conn }}' -ipv4.addresses '{{ _production_ip }}/{{ _prefix }}'
+        # Remove default gateway — builder IS the gateway in bootstrap mode
+        nmcli connection modify '{{ _nm_conn }}' ipv4.gateway ''
+        nmcli connection up '{{ _nm_conn }}'
+      async: 30
+      poll: 0
+      when: _bootstrap_ip not in _ip_check.stdout
+
+    - name: Confirm transition initiated
+      ansible.builtin.debug:
+        msg: >-
+          Bootstrap-authoritative mode enabled. Management IP swapping to {{ _bootstrap_ip }}.
+          SSH connection will drop. Reconnect at {{ _bootstrap_ip }} to verify.
+      when: _bootstrap_ip not in _ip_check.stdout
