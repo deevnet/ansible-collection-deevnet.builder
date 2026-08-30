@@ -1,0 +1,17 @@
+# Terraform CLI configuration
+# Managed by Ansible - DO NOT EDIT MANUALLY
+# Role: deevnet.builder.workstation
+
+# Providers are fetched from the registry by `terraform init`, not installed as
+# packages. A shared cache keeps every module directory from re-downloading the
+# same provider binaries (bpg/proxmox alone is ~100MB per init).
+plugin_cache_dir = "{{ _tf_home }}/{{ terraform_plugin_cache_dir }}"
+
+# Leave dependency lock files authoritative: a cache hit must still record the
+# provider in .terraform.lock.hcl rather than silently satisfying the constraint.
+plugin_cache_may_break_dependency_lock_file = false
+{% if terraform_disable_checkpoint | bool %}
+
+# No outbound version-check callouts from a lab workstation.
+disable_checkpoint = true
+{% endif %}

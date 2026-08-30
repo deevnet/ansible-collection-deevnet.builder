@@ -22,6 +22,45 @@
     - hashicorp_packages | length > 0
   become: true
 
+# Terraform CLI configuration for dev users.
+# Terraform "plugins" are providers pulled from the registry at `terraform init`
+# time and pinned per project in required_providers -- they are not packages, so
+# nothing here installs them. What the workstation owns is the CLI config: a
+# shared plugin cache so repeated inits across tenant modules stay cheap.
+- name: Ensure Terraform plugin cache directory exists for dev users
+  ansible.builtin.file:
+    path: "{{ _tf_home }}/{{ terraform_plugin_cache_dir }}"
+    state: directory
+    owner: "{{ user.name }}"
+    group: "{{ user.primary_group | default(user.name) }}"
+    mode: "0755"
+  loop: "{{ dev_users | default([]) }}"
+  loop_control:
+    loop_var: user
+  vars:
+    _tf_home: "{{ user.home | default('/home/' ~ user.name) }}"
+  when:
+    - terraform_cli_config_enabled | bool
+    - "'terraform' in hashicorp_packages"
+  become: true
+
+- name: Deploy Terraform CLI config for dev users
+  ansible.builtin.template:
+    src: terraformrc.j2
+    dest: "{{ _tf_home }}/.terraformrc"
+    owner: "{{ user.name }}"
+    group: "{{ user.primary_group | default(user.name) }}"
+    mode: "0644"
+  loop: "{{ dev_users | default([]) }}"
+  loop_control:
+    loop_var: user
+  vars:
+    _tf_home: "{{ user.home | default('/home/' ~ user.name) }}"
+  when:
+    - terraform_cli_config_enabled | bool
+    - "'terraform' in hashicorp_packages"
+  become: true
+
 - name: Allow ephemeral TCP ports for packer HTTP server
   ansible.posix.firewalld:
     port: 1025-65535/tcp
