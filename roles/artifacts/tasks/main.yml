@@ -22,6 +22,9 @@
 - name: Publish VyOS cloud-init files
   ansible.builtin.import_tasks: publish_vyos_cloudinit.yml
 
+- name: Publish Proxmox bare-metal bootstrap scripts
+  ansible.builtin.import_tasks: publish_pve_bootstrap.yml
+
 - name: Ensure Podman is installed (for image artifacts)
   ansible.builtin.dnf:
     name: podman

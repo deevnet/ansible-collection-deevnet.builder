@@ -1,0 +1,84 @@
+---
+# Publish per-host Proxmox bare-metal bootstrap scripts.
+#
+# A freshly-installed Proxmox node is the one machine in the estate Ansible
+# cannot reach: no static address, no service account, no key, and on a minimal
+# PVE image not even sudo. Something has to run by hand exactly once. These
+# scripts are that something, generated from inventory rather than remembered.
+#
+# Two scripts, split at the point where the network starts working:
+#
+#   <host>-netconfig.sh   static address, bridge, hostname, resolver. Run at the
+#                         CONSOLE - it cannot be downloaded, because there is no
+#                         network yet. That is why it is separate.
+#   <host>-configure.sh   service account + key + sudo + platform packages.
+#                         Fetched over HTTP once netconfig has made that possible.
+#
+# Both stop at "Ansible can drive this node". Bridges, VLAN sub-interfaces and
+# SDN belong to deevnet.net.proxmox_node_network, which drives the PVE API;
+# letting these scripts own /etc/network/interfaces too would give that file two
+# owners and guarantee drift.
+#
+# Rendered per host so the console step is a URL and a paste, with no arguments
+# to mistype at 2am. Site selection is inventory selection, as everywhere else.
+
+- name: Ensure the PVE bootstrap directory exists
+  ansible.builtin.file:
+    path: "{{ nginx_artifacts_root }}/{{ artifacts_pve_bootstrap_dir }}"
+    state: directory
+    mode: "0755"
+    owner: root
+    group: root
+  become: true
+
+- name: Resolve the automation public key from the published key set
+  ansible.builtin.set_fact:
+    _pve_autoprov_pubkey: >-
+      {{ (artifacts_ssh_keys | selectattr('name', 'equalto', artifacts_pve_bootstrap_key_name)
+          | map(attribute='public_key') | first | default('')) | trim }}
+
+- name: Assert the automation key was found
+  ansible.builtin.assert:
+    that:
+      - _pve_autoprov_pubkey | length > 0
+    fail_msg: >-
+      No key named '{{ artifacts_pve_bootstrap_key_name }}' in artifacts_ssh_keys.
+      The bootstrap script embeds the same key this server publishes, so the two
+      cannot drift; define it there rather than hardcoding one here.
+
+- name: Render the bootstrap scripts for each Proxmox node
+  ansible.builtin.template:
+    src: "pve-bootstrap/{{ item.1 }}.sh.j2"
+    dest: "{{ nginx_artifacts_root }}/{{ artifacts_pve_bootstrap_dir }}/{{ item.0 }}-{{ item.1 }}.sh"
+    mode: "0755"
+    owner: root
+    group: root
+  become: true
+  loop: "{{ (groups[artifacts_pve_bootstrap_group] | default([])) | product(['netconfig', 'configure']) | list }}"
+  loop_control:
+    label: "{{ item.0 }}-{{ item.1 }}.sh"
+  vars:
+    _hv: "{{ hostvars[item.0] }}"
+    _iface: "{{ _hv.env.interfaces[artifacts_pve_bootstrap_interface] }}"
+    _vlan: "{{ deevnet_vlans[_iface.segment] }}"
+    pve_host: "{{ item.0 }}"
+    pve_node: "{{ _hv.proxmox_node | default(item.0) }}"
+    pve_mac: "{{ _hv.infrastructure.interfaces[artifacts_pve_bootstrap_interface].mac }}"
+    pve_ip: "{{ _iface.ip }}"
+    # Prefix comes from the segment's subnet, so the script never carries a
+    # netmask the inventory does not agree with. Plain split rather than
+    # ipaddr(): this is string work and netaddr is not a dependency here.
+    pve_cidr: "{{ _iface.ip }}/{{ _vlan.subnet.split('/')[1] }}"
+    pve_gateway: "{{ _iface.gateway | default(_vlan.gateway, true) }}"
+    pve_dns: "{{ artifacts_pve_bootstrap_dns | default(_vlan.gateway, true) }}"
+    pve_search_domain: "{{ deevnet_substrate }}.{{ deevnet_root_domain }}"
+    pve_fqdn: "{{ item.0 }}.{{ deevnet_substrate }}.{{ deevnet_root_domain }}"
+    pve_artifact_base: "{{ bootstrap_artifact_server }}"
+    pve_autoprov_pubkey: "{{ _pve_autoprov_pubkey }}"
+
+- name: Report where the bootstrap scripts landed
+  ansible.builtin.debug:
+    msg: >-
+      PVE bootstrap published for
+      {{ groups[artifacts_pve_bootstrap_group] | default([]) | join(', ') }} at
+      {{ bootstrap_artifact_server }}/{{ artifacts_pve_bootstrap_dir }}/

@@ -1,0 +1,127 @@
+#!/usr/bin/env bash
+# {{ ansible_managed }}
+#
+# Bare-metal host configuration for {{ pve_host }} ({{ pve_node }})
+#
+# STAGE 2 of 2. Run once the node is reachable over the network - stage 1
+# (netconfig) gets it there. Fetch and run in one step:
+#
+#   curl -fsSL {{ pve_artifact_base }}/{{ artifacts_pve_bootstrap_dir }}/{{ pve_host }}-configure.sh | bash
+#
+# This takes the node from "reachable" to "Ansible can drive it", and stops
+# there. It deliberately does NOT touch bridges, VLAN sub-interfaces or SDN:
+# those belong to the deevnet.net.proxmox_node_network role, which drives the
+# PVE API. Two owners for /etc/network/interfaces is how you get drift.
+#
+# Safe to re-run.
+
+set -euo pipefail
+
+AUTOPROV_USER="{{ artifacts_pve_bootstrap_user }}"
+PACKAGES="{{ artifacts_pve_bootstrap_packages | join(' ') }}"
+
+log() { printf '\n[configure] %s\n' "$*"; }
+die() { printf '\n[configure] ERROR: %s\n' "$*" >&2; exit 1; }
+
+[[ $EUID -eq 0 ]] || die "run as root"
+
+{% if artifacts_pve_bootstrap_no_subscription_repo %}
+# --- APT sources ------------------------------------------------------------
+# A fresh PVE install points at the enterprise repository, which 401s without a
+# subscription and makes every apt-get below fail. Swap to no-subscription.
+# PVE 9 (Debian 13) uses deb822 .sources files; older releases use .list.
+log "configuring the no-subscription repository"
+
+if [[ -f /etc/apt/sources.list.d/pve-enterprise.sources ]]; then
+    sed -i 's/^Enabled:.*/Enabled: false/' /etc/apt/sources.list.d/pve-enterprise.sources
+    grep -q '^Enabled:' /etc/apt/sources.list.d/pve-enterprise.sources \
+        || echo 'Enabled: false' >> /etc/apt/sources.list.d/pve-enterprise.sources
+fi
+if [[ -f /etc/apt/sources.list.d/pve-enterprise.list ]]; then
+    sed -i 's/^deb/# deb/' /etc/apt/sources.list.d/pve-enterprise.list
+fi
+if [[ -f /etc/apt/sources.list.d/ceph.sources ]]; then
+    sed -i 's/^Enabled:.*/Enabled: false/' /etc/apt/sources.list.d/ceph.sources
+fi
+
+CODENAME=$(. /etc/os-release && echo "${VERSION_CODENAME:-trixie}")
+if [[ ! -f /etc/apt/sources.list.d/pve-no-subscription.sources ]]; then
+    cat > /etc/apt/sources.list.d/pve-no-subscription.sources <<EOF
+Types: deb
+URIs: http://download.proxmox.com/debian/pve
+Suites: $CODENAME
+Components: pve-no-subscription
+Signed-By: /usr/share/keyrings/proxmox-archive-keyring.gpg
+EOF
+    log "added pve-no-subscription for $CODENAME"
+fi
+{% endif %}
+
+# --- Automation identity ----------------------------------------------------
+# Matches the convention used by every other Deevnet host: a key-authenticated
+# service account with passwordless sudo. No root SSH, no passwords.
+log "ensuring $AUTOPROV_USER exists"
+if ! id -u "$AUTOPROV_USER" >/dev/null 2>&1; then
+    useradd -m -s /bin/bash "$AUTOPROV_USER"
+    log "created $AUTOPROV_USER"
+else
+    log "$AUTOPROV_USER already present"
+fi
+
+HOME_DIR=$(getent passwd "$AUTOPROV_USER" | cut -d: -f6)
+install -d -m 0700 -o "$AUTOPROV_USER" -g "$AUTOPROV_USER" "$HOME_DIR/.ssh"
+
+# The key is embedded rather than fetched so this script has exactly one
+# network dependency - itself. It is a public key; nothing secret is in here.
+AUTOPROV_KEY='{{ pve_autoprov_pubkey }}'
+
+touch "$HOME_DIR/.ssh/authorized_keys"
+if grep -qF "$AUTOPROV_KEY" "$HOME_DIR/.ssh/authorized_keys"; then
+    log "authorized key already installed"
+else
+    printf '%s\n' "$AUTOPROV_KEY" >> "$HOME_DIR/.ssh/authorized_keys"
+    log "installed authorized key"
+fi
+chmod 0600 "$HOME_DIR/.ssh/authorized_keys"
+chown -R "$AUTOPROV_USER:$AUTOPROV_USER" "$HOME_DIR/.ssh"
+
+# --- Packages ---------------------------------------------------------------
+# sudo    Debian's PVE image ships without it, so Ansible `become` cannot work
+{% for p in artifacts_pve_bootstrap_packages if p != 'sudo' %}
+# {{ '%-7s' | format(p) }} {{ artifacts_pve_bootstrap_package_notes.get(p, 'required by the platform') }}
+{% endfor %}
+log "installing: $PACKAGES"
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -qq
+# shellcheck disable=SC2086
+apt-get install -y -qq $PACKAGES
+
+# sudoers written after sudo is installed, so the drop-in is validated by a
+# real sudo rather than left as a file nothing parses.
+printf '%s ALL=(ALL) NOPASSWD: ALL\n' "$AUTOPROV_USER" > "/etc/sudoers.d/010_${AUTOPROV_USER}-nopasswd"
+chmod 0440 "/etc/sudoers.d/010_${AUTOPROV_USER}-nopasswd"
+if command -v visudo >/dev/null 2>&1; then
+    visudo -cf "/etc/sudoers.d/010_${AUTOPROV_USER}-nopasswd" >/dev/null \
+        || die "generated sudoers drop-in failed validation"
+fi
+log "passwordless sudo configured for $AUTOPROV_USER"
+
+{% if 'dnsmasq' in artifacts_pve_bootstrap_packages %}
+# PVE runs one dnsmasq per SDN zone from its own generated config. Debian's
+# packaged unit starts a system-wide instance that binds :53 and competes with
+# them, so it is disabled - the PVE SDN docs treat this as required.
+if systemctl list-unit-files dnsmasq.service >/dev/null 2>&1; then
+    systemctl disable --now dnsmasq >/dev/null 2>&1 || true
+    log "disabled Debian's system-wide dnsmasq (PVE runs per-zone instances)"
+fi
+{% endif %}
+
+{% if 'frr' in artifacts_pve_bootstrap_packages %}
+systemctl enable --now frr >/dev/null 2>&1 || true
+log "frr enabled ($(systemctl is-active frr 2>/dev/null || echo unknown))"
+{% endif %}
+
+log "done. verify from the control node:"
+log "  ssh $AUTOPROV_USER@{{ pve_ip }} 'sudo -n id -un'"
+log "then hand the node to Ansible:"
+log "  ansible-playbook playbooks/proxmox-node-network.yml --limit {{ pve_host }}"

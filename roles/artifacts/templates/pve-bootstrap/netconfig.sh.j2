@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+# {{ ansible_managed }}
+#
+# Bare-metal network configuration for {{ pve_host }} ({{ pve_node }})
+#
+# STAGE 1 of 2. Run this at the CONSOLE of a freshly-installed Proxmox node.
+# It cannot be downloaded, because there is no usable network yet - that is the
+# whole reason it exists. Type it, paste it, or carry it on a USB stick.
+#
+# Once this has run and the node is reachable, stage 2 can be fetched over HTTP:
+#   curl -fsSL {{ pve_artifact_base }}/{{ artifacts_pve_bootstrap_dir }}/{{ pve_host }}-configure.sh | bash
+#
+# Everything below is derived from the Deevnet inventory. Do not hand-edit;
+# regenerate from the artifact server instead.
+
+set -euo pipefail
+
+HOSTNAME_SHORT="{{ pve_host }}"
+FQDN="{{ pve_fqdn }}"
+MGMT_MAC="{{ pve_mac | lower }}"
+MGMT_IP="{{ pve_ip }}"
+MGMT_CIDR="{{ pve_cidr }}"
+MGMT_GW="{{ pve_gateway }}"
+MGMT_DNS="{{ pve_dns }}"
+SEARCH_DOMAIN="{{ pve_search_domain }}"
+BRIDGE="{{ artifacts_pve_bootstrap_bridge }}"
+
+log() { printf '\n[netconfig] %s\n' "$*"; }
+die() { printf '\n[netconfig] ERROR: %s\n' "$*" >&2; exit 1; }
+
+[[ $EUID -eq 0 ]] || die "run as root"
+
+# Find the management NIC by MAC rather than by name. Interface names vary with
+# hardware (eno1, eno2, enp0s31f6) and the inventory already records the MAC as
+# the host's identity - the same way the base role discovers interfaces.
+NIC=""
+for d in /sys/class/net/*; do
+    n=$(basename "$d")
+    [[ -e "$d/device" ]] || continue          # skip lo, bridges, virtual
+    if [[ "$(cat "$d/address" 2>/dev/null)" == "$MGMT_MAC" ]]; then
+        NIC="$n"; break
+    fi
+done
+[[ -n "$NIC" ]] || die "no interface with MAC $MGMT_MAC on this box.
+  Interfaces present:
+$(for d in /sys/class/net/*; do [[ -e "$d/device" ]] && printf '    %-12s %s\n' "$(basename "$d")" "$(cat "$d/address")"; done)
+  Either this is the wrong host, or the inventory MAC is stale."
+
+log "management NIC: $NIC ($MGMT_MAC)"
+
+# Idempotent: if the bridge already carries the target address, there is
+# nothing to do. This script gets re-run on half-configured boxes.
+if ip -4 -o addr show "$BRIDGE" 2>/dev/null | grep -qF "$MGMT_CIDR"; then
+    log "$BRIDGE already has $MGMT_CIDR - nothing to do"
+    exit 0
+fi
+
+STAMP=$(date +%Y%m%d-%H%M%S)
+if [[ -f /etc/network/interfaces ]]; then
+    cp -a /etc/network/interfaces "/etc/network/interfaces.bak-$STAMP"
+    log "backed up /etc/network/interfaces to .bak-$STAMP"
+fi
+
+# Written directly rather than through pvesh: on a fresh install pveproxy may
+# not be healthy yet, and this is the state the PVE installer leaves anyway.
+# Once the node is reachable, interface changes belong to the
+# deevnet.net.proxmox_node_network role via the API - not to this script.
+cat > /etc/network/interfaces <<EOF
+# Managed by Deevnet bootstrap (stage 1). Interface changes after this point
+# belong to the deevnet.net.proxmox_node_network Ansible role, which drives the
+# PVE API - do not hand-edit here.
+auto lo
+iface lo inet loopback
+
+iface $NIC inet manual
+
+auto $BRIDGE
+iface $BRIDGE inet static
+    address $MGMT_CIDR
+    gateway $MGMT_GW
+    bridge-ports $NIC
+    bridge-stp off
+    bridge-fd 0
+EOF
+
+log "wrote /etc/network/interfaces ($BRIDGE over $NIC, $MGMT_CIDR)"
+
+# PVE resolves its own node name through /etc/hosts and will not start cleanly
+# without an FQDN mapping to the management address.
+sed -i "/[[:space:]]${HOSTNAME_SHORT}\([[:space:]]\|$\)/d" /etc/hosts
+sed -i "/^${MGMT_IP}[[:space:]]/d" /etc/hosts
+printf '%s\t%s %s\n' "$MGMT_IP" "$FQDN" "$HOSTNAME_SHORT" >> /etc/hosts
+echo "$HOSTNAME_SHORT" > /etc/hostname
+hostnamectl set-hostname "$HOSTNAME_SHORT" 2>/dev/null || true
+log "hostname set to $FQDN ($MGMT_IP)"
+
+cat > /etc/resolv.conf <<EOF
+search $SEARCH_DOMAIN
+nameserver $MGMT_DNS
+EOF
+log "resolver set to $MGMT_DNS"
+
+log "applying network configuration - if you are on a remote console this may drop"
+if command -v ifreload >/dev/null 2>&1; then
+    ifreload -a
+else
+    systemctl restart networking
+fi
+
+log "done. verify with:  ip -br a show $BRIDGE  &&  ping -c2 $MGMT_GW"
+log "then run stage 2:"
+log "  curl -fsSL {{ pve_artifact_base }}/{{ artifacts_pve_bootstrap_dir }}/{{ pve_host }}-configure.sh | bash"

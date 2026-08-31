@@ -85,3 +85,45 @@ nginx_artifacts_default_server: true
 nginx_conf_dir: /etc/nginx
 nginx_artifacts_conf_path: "{{ nginx_conf_dir }}/conf.d/artifacts.conf"
 nginx_artifacts_site_name: artifacts
+
+# Proxmox bare-metal bootstrap
+# ------------------------------------------------------------------------------
+# Generates the two hand-run scripts that take a freshly-installed Proxmox node
+# from bare metal to Ansible-manageable. See tasks/publish_pve_bootstrap.yml for
+# why this cannot be done with Ansible alone.
+
+# Inventory group to render scripts for.
+artifacts_pve_bootstrap_group: hypervisors
+
+# Published under {{ nginx_artifacts_root }}/<dir>/<host>-{netconfig,configure}.sh
+artifacts_pve_bootstrap_dir: bootstrap/pve
+
+# Interface key in infrastructure/env to take the MAC and address from.
+artifacts_pve_bootstrap_interface: eth0
+
+# PVE's management bridge. The physical NIC is discovered at runtime by MAC.
+artifacts_pve_bootstrap_bridge: vmbr0
+
+# Service account the estate uses everywhere; must match a key published in
+# artifacts_ssh_keys so the two cannot drift.
+artifacts_pve_bootstrap_user: a_autoprov
+artifacts_pve_bootstrap_key_name: a_autoprov_rsa
+
+# Resolver for the node. Defaults to the segment gateway (the core router).
+artifacts_pve_bootstrap_dns: ""
+
+# A fresh PVE points at the enterprise repo, which 401s without a subscription
+# and breaks every apt-get. Set false only if you hold a subscription.
+artifacts_pve_bootstrap_no_subscription_repo: true
+
+# Packages the node needs before Ansible and the tenant fabric can work.
+artifacts_pve_bootstrap_packages:
+  - sudo
+  - frr
+  - dnsmasq
+
+# Rendered as comments in the script so the reason survives contact with a
+# console at 2am.
+artifacts_pve_bootstrap_package_notes:
+  frr: "EVPN control plane; an SDN EVPN zone will not come up without it"
+  dnsmasq: "per-VNet DHCP/DNS for SDN; without it fabric IPAM leases nothing"
