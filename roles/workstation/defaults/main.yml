@@ -33,6 +33,10 @@ terraform_disable_checkpoint: true
 dev_tool_packages:
   - acl
   - git
+  # GitHub CLI. Note it does NOT ride on the SSH key that git push uses - the
+  # GitHub API needs a token, so `gh auth login` (or GH_TOKEN) is still a
+  # per-user step after this installs the binary.
+  - gh
   - vim
   - tmux
   - golang
