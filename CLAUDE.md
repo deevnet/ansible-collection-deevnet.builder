@@ -65,6 +65,14 @@ ansible-playbook playbooks/site.yml --syntax-check
 The `artifacts` role uses a pluggable fetch system. Artifacts are defined in inventory via `artifacts_to_fetch` list with a `type` field that maps to task files:
 - `type: generic` → `fetch_generic.yml` (simple URL download with optional sha256)
 - `type: fedora_iso` → `fetch_fedora_iso.yml` (GPG + checksum verification)
+- `type: proxmox_iso` → `fetch_proxmox_iso.yml` (detached GPG signature over SHA256SUMS)
+
+**Proxmox signing keys are a list.** `SHA256SUMS.asc` can be signed by more than one release key
+(currently Trixie *and* Bookworm, so clients spanning a Debian base change keep working), and
+`gpg --verify` exits non-zero if it cannot check **any** signature in the file. Verifying a
+dual-signed `.asc` with one key imported therefore fails on a good signature. Declare
+`gpg_key_urls` (list) for such artifacts; `gpg_key_url` (singular) still works for single-signed
+ones.
 
 ### Container Service Management
 The `omada_controller` role demonstrates systemd management of podman containers:

@@ -2,6 +2,14 @@
 #
 # Proxmox uses separate SHA256SUMS and SHA256SUMS.asc files
 # (unlike Fedora which has an embedded signature in the checksum file)
+#
+# SHA256SUMS.asc can carry MORE THAN ONE signature - the current release key
+# and the previous one, so older clients keep working across a Debian base
+# change. gpg --verify exits non-zero if it cannot check *any* signature in the
+# file, so verifying a dual-signed .asc with only one key imported fails on a
+# perfectly good signature. Artifacts therefore declare gpg_key_urls (a list)
+# and every key is imported before verifying. gpg_key_url (singular) still
+# works for entries that predate this.
 
 - name: Check if Proxmox ISO already published to artifacts
   ansible.builtin.stat:
@@ -24,11 +32,22 @@
         mode: "0700"
       become: true
 
-    - name: Download Proxmox GPG key
+    - name: Resolve the signing keys this artifact needs
+      ansible.builtin.set_fact:
+        proxmox_gpg_keys: >-
+          {{ artifact_item.gpg_key_urls
+             | default([artifact_item.gpg_key_url])
+             | default([], true) }}
+
+    - name: Download Proxmox GPG keys
       ansible.builtin.get_url:
-        url: "{{ artifact_item.gpg_key_url }}"
-        dest: "/tmp/proxmox_iso_{{ artifact_item.name }}/proxmox-release.gpg"
+        url: "{{ item }}"
+        dest: "/tmp/proxmox_iso_{{ artifact_item.name }}/proxmox-release-{{ loop_index }}.gpg"
         mode: "0644"
+      loop: "{{ proxmox_gpg_keys }}"
+      loop_control:
+        index_var: loop_index
+        label: "{{ item }}"
       become: true
 
     - name: Create temporary GPG home directory
@@ -38,11 +57,15 @@
         mode: "0700"
       become: true
 
-    - name: Import Proxmox GPG key into temporary keyring
+    - name: Import Proxmox GPG keys into temporary keyring
       ansible.builtin.command:
         cmd: >
           gpg --homedir /tmp/proxmox_iso_{{ artifact_item.name }}/gnupg
-          --import /tmp/proxmox_iso_{{ artifact_item.name }}/proxmox-release.gpg
+          --import /tmp/proxmox_iso_{{ artifact_item.name }}/proxmox-release-{{ loop_index }}.gpg
+      loop: "{{ proxmox_gpg_keys }}"
+      loop_control:
+        index_var: loop_index
+        label: "{{ item }}"
       register: gpg_import
       changed_when: "'imported' in gpg_import.stderr"
       become: true
@@ -61,6 +84,8 @@
         mode: "0644"
       become: true
 
+    # Fails if ANY signature in the .asc cannot be checked, which is why every
+    # key the file was signed with has to be imported above.
     - name: Verify checksum signature (detached signature)
       ansible.builtin.command:
         cmd: >
