@@ -19,12 +19,11 @@ bootstrap_tftp_owner: "root"
 bootstrap_tftp_group: "root"
 
 # TFTP directory structure to create
+# Release-specific subdirectories (e.g. fedora/44) come from inventory, since
+# the set of tracked releases is an environment decision, not a role default.
 bootstrap_tftp_dirs:
   - pxelinux.cfg
   - fedora
-  - fedora/40
-  - fedora/41
-  - fedora/43
 
 # ==============================================================================
 # DNSMASQ-ONLY CONFIGURATION (only used when bootstrap_tftp_backend == "dnsmasq")
@@ -88,15 +87,15 @@ bootstrap_dns_upstream_servers: []
 # to {{ bootstrap_tftp_root }}/{{ dest_subdir }}/ by the artifacts role.
 #
 # Each entry requires:
-#   - name: Display name in boot menu (e.g., "Fedora 43 Server")
+#   - name: Display name in boot menu (e.g., "Fedora 44 Server")
 #   - dest_subdir: Path under TFTP root where vmlinuz/initrd.img exist
 #   - boot_options: (optional) Kernel command-line options
 #
 # Example:
 # bootstrap_netboot_images:
-#   - name: "Fedora 43 Server"
-#     dest_subdir: "fedora/43"
-#     boot_options: "inst.repo=http://192.168.1.10/iso/fedora/43 inst.ks=http://192.168.1.10/kickstart/builder.ks"
+#   - name: "Fedora 44 Server"
+#     dest_subdir: "fedora/44"
+#     boot_options: "inst.repo=http://192.168.1.10/fedora/44/mirror inst.ks=http://192.168.1.10/kickstart/builder-node-44.ks"
 #
 bootstrap_netboot_images: []
 

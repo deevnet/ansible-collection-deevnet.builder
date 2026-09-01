@@ -1,6 +1,9 @@
-# Fedora Server 43 Kickstart Configuration
+# Fedora Server {{ ks_fedora_release }} Kickstart Configuration
 # Automated installation for Builder Node (bare-metal)
 # Target: AOOSTAR N150 or similar mini-PC with ~1TB storage
+#
+# Rendered from templates/kickstart/builder-node.ks.j2 by the deevnet.builder
+# artifacts role. Do not edit the published copy on the artifact server.
 
 # Installation mode
 text
@@ -51,7 +54,7 @@ logvol /srv --vgname=vg_builder --name=lv_srv --fstype=xfs --size=1 --grow
 logvol swap --vgname=vg_builder --name=lv_swap --size=16384
 
 # Installation source (local artifact server)
-url --url=http://artifacts.dvntm.deevnet.net/fedora/43/mirror
+url --url={{ bootstrap_artifact_server }}/fedora/{{ ks_fedora_release }}/mirror
 
 # Package selection (minimal for Ansible-driven provisioning)
 %packages --ignoremissing --excludedocs
@@ -81,12 +84,9 @@ systemctl enable --now sshd || true
 # Create SSH directory with correct perms/ownership
 install -d -m 0700 -o a_autoprov -g a_autoprov /home/a_autoprov/.ssh
 
-# Fetch SSH key from artifact server
-# NOTE: This URL should match your artifact server configuration
-# The kickstart is served from the same server, so use relative addressing
-# or update this URL to match your environment
+# Fetch SSH key from artifact server (same host that served this kickstart)
 curl --connect-timeout 10 --max-time 30 -fsSL \
-  "http://artifacts.dvntm.deevnet.net/keys/ssh/a_autoprov_rsa.pub" \
+  "{{ bootstrap_artifact_server }}/keys/ssh/a_autoprov_rsa.pub" \
   -o /home/a_autoprov/.ssh/authorized_keys || true
 
 # Enforce perms/ownership

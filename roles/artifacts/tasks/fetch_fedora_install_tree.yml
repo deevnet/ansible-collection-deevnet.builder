@@ -3,10 +3,14 @@
 # Required fields: name, rsync_url, dest_subdir
 #
 # Example inventory entry:
-#   - name: "Fedora 43 Server Install Tree"
+#   - name: "fedora-server-44-install-tree"
 #     type: fedora_install_tree
-#     rsync_url: "rsync://dl.fedoraproject.org/fedora-enchilada/linux/releases/43/Server/x86_64/os/"
-#     dest_subdir: "fedora/43/mirror"
+#     rsync_url: "rsync://dl.fedoraproject.org/fedora-enchilada/linux/releases/44/Server/x86_64/os/"
+#     dest_subdir: "fedora/44/mirror"
+#
+# Note: when using rsync_mirrors + rsync_path, each mirror root must already
+# include that mirror's own layout prefix (some expose .../linux, others are
+# rooted there), so a single rsync_path resolves across all of them.
 
 - name: Ensure rsync is installed
   ansible.builtin.dnf:

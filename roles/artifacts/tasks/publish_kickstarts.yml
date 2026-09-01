@@ -1,6 +1,10 @@
 ---
 # Publish kickstart files to the artifact server
 # These kickstarts are used for PXE-based unattended installations
+#
+# One kickstart is rendered per tracked Fedora release, plus an unversioned
+# builder-node.ks pointing at the current release so existing PXE boot options
+# and any hand-written references keep resolving.
 
 - name: Ensure kickstart directory exists
   ansible.builtin.file:
@@ -11,11 +15,25 @@
     group: root
   become: true
 
-- name: Deploy builder-node kickstart
-  ansible.builtin.copy:
-    src: kickstart/builder-node.ks
+- name: Deploy per-release builder-node kickstarts
+  ansible.builtin.template:
+    src: kickstart/builder-node.ks.j2
+    dest: "{{ nginx_artifacts_root }}/kickstart/builder-node-{{ item }}.ks"
+    mode: "0644"
+    owner: root
+    group: root
+  become: true
+  loop: "{{ artifacts_kickstart_releases }}"
+  vars:
+    ks_fedora_release: "{{ item }}"
+
+- name: Deploy default builder-node kickstart (current release)
+  ansible.builtin.template:
+    src: kickstart/builder-node.ks.j2
     dest: "{{ nginx_artifacts_root }}/kickstart/builder-node.ks"
     mode: "0644"
     owner: root
     group: root
   become: true
+  vars:
+    ks_fedora_release: "{{ artifacts_kickstart_default_release }}"
