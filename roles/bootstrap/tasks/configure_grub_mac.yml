@@ -8,6 +8,23 @@
 #     dest_subdir: "vyos"
 #     boot_options: "boot=live noautologin fetch=..."
 
+# An entry whose MAC renders empty means the host has no allocated identity yet
+# (mgmt_vm.vmid still 0, so deevnet_assigned_mac is undefined). Rendering it
+# anyway writes a useless "grub.cfg-" into the TFTP root, and NOTHING catches
+# that later: the vm-identity audit compares this list against host_vars, but
+# these entries reference hostvars rather than restating the MAC, so both sides
+# are empty and agree. Fail here instead - run vm-identity-assign first.
+- name: Assert every MAC-specific GRUB entry has an allocated MAC
+  ansible.builtin.assert:
+    that:
+      - bootstrap_grub_mac_configs | default([]) | rejectattr('mac') | list | length == 0
+    fail_msg: >-
+      These bootstrap_grub_mac_configs entries have no MAC:
+      {{ bootstrap_grub_mac_configs | default([]) | rejectattr('mac')
+         | map(attribute='hostname') | join(', ') }}.
+      Allocate their identity first (deevnet.mgmt `make vm-identity-assign`).
+    success_msg: "All MAC-specific GRUB entries carry an allocated MAC."
+
 - name: Deploy MAC-specific GRUB configs (root - uppercase)
   ansible.builtin.template:
     src: grub.cfg-mac.j2

@@ -6,6 +6,7 @@
 - name: Install TFTP packages (standalone tftpd)
   ansible.builtin.import_tasks: install_tftpd.yml
   when: bootstrap_tftp_backend == "tftpd"
+  tags: [pxe]
 
 - name: Install dnsmasq and dependencies
   ansible.builtin.import_tasks: install_dnsmasq.yml
@@ -13,14 +14,17 @@
 
 - name: Setup TFTP root directory structure
   ansible.builtin.import_tasks: setup_tftp_root.yml
+  tags: [pxe]
 
 - name: Configure SELinux for TFTP directories
   ansible.builtin.import_tasks: setup_selinux.yml
+  tags: [pxe]
 
 # Configure TFTP service based on backend
 - name: Configure standalone TFTP server (systemd socket)
   ansible.builtin.import_tasks: configure_tftpd.yml
   when: bootstrap_tftp_backend == "tftpd"
+  tags: [pxe]
 
 - name: Discover interface from MAC (dnsmasq backend)
   ansible.builtin.include_tasks: discover_interface.yml
@@ -36,9 +40,17 @@
 
 - name: Configure PXE boot menu
   ansible.builtin.import_tasks: configure_pxelinux.yml
+  tags: [pxe]
 
 - name: Configure MAC-specific GRUB configs (UEFI auto-boot)
   ansible.builtin.import_tasks: configure_grub_mac.yml
+  # Tags go on the tasks, never on the role in site.yml: a role-level tag is
+  # inherited by role DEPENDENCIES, so it would drag `base` in too. Tagging the
+  # import instead propagates statically to every imported task and lets
+  # --tags grub-mac re-render one host's boot config in seconds. Same reasoning
+  # as the container-images tag in roles/artifacts.
+  tags: [pxe, grub-mac]
 
 - name: Configure firewall rules
   ansible.builtin.import_tasks: configure_firewall.yml
+  tags: [pxe]
