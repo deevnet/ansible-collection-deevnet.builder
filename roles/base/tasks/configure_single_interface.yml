@@ -138,13 +138,39 @@
     - _nmcli_existing_static.stdout_lines | difference(_desired_static_lines) | length > 0 or
       _desired_static_lines | difference(_nmcli_existing_static.stdout_lines) | length > 0
 
+# A declared interface whose cable is out reports carrier=0, and `nmcli connection up`
+# then exits rc=4 ("device has no carrier"). Without this check that rc is fatal, which
+# makes the whole host unmanageable over one unplugged NIC - provisioner-ph01's transit
+# eth1 is exactly that case. The connection profile is still written above; only the
+# activation is skipped, so plugging the cable in and re-running finishes the job.
+- name: Read carrier state for {{ _discovered_iface }}
+  ansible.builtin.command:
+    cmd: cat /sys/class/net/{{ _discovered_iface }}/carrier
+  register: _iface_carrier
+  changed_when: false
+  failed_when: false
+
+- name: Set carrier fact for {{ _discovered_iface }}
+  ansible.builtin.set_fact:
+    _iface_has_carrier: "{{ _iface_carrier.rc == 0 and (_iface_carrier.stdout | trim) == '1' }}"
+
+- name: Warn that {{ _discovered_iface }} has no carrier
+  ansible.builtin.debug:
+    msg: >-
+      {{ _discovered_iface }} ({{ _iface_key }}, {{ _target_mac }}) has no carrier.
+      Its connection profile was written but not activated. Plug the cable in and
+      re-run, or drop the interface from inventory if it is not meant to be connected.
+  when: not _iface_has_carrier
+
 # --- Bring up / reload (both paths) ---
 
 - name: Bring up connection for {{ _discovered_iface }}
   become: true
   ansible.builtin.command:
     cmd: nmcli connection up {{ _discovered_iface }}
-  when: _discovered_iface not in _nmcli_active.stdout
+  when:
+    - _discovered_iface not in _nmcli_active.stdout
+    - _iface_has_carrier
   changed_when: true
 
 # Reload an already-active connection after config changes. Uses async
@@ -159,5 +185,6 @@
   poll: 0
   when:
     - _discovered_iface in _nmcli_active.stdout
+    - _iface_has_carrier
     - (_nmcli_modify_dhcp is defined and _nmcli_modify_dhcp is changed) or
       (_nmcli_modify_static is defined and _nmcli_modify_static is changed)
