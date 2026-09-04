@@ -42,6 +42,16 @@ dev_tool_packages:
   - golang
   - nmap-ncat
   - sshpass
+  # jq and yq are how vault contents and terraform/API JSON get read on the
+  # command line, which is most of what operating this estate looks like:
+  # reading a TSIG key or a state credential out of the inventory vault, and
+  # pulling one field out of `terraform output -json` or a PVE API response.
+  #
+  # Fedora's yq is mikefarah/yq (Go, v4), NOT the Python jq-wrapper of the same
+  # name. It reads YAML natively and takes jq-ish paths; runbooks written for
+  # the Python one may need adjusting.
+  - jq
+  - yq
 
 # Virtualization packages for KVM/libvirt
 virtualization_packages:
