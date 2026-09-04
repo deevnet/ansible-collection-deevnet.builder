@@ -25,14 +25,29 @@
 - name: Publish Proxmox bare-metal bootstrap scripts
   ansible.builtin.import_tasks: publish_pve_bootstrap.yml
 
+# Tagged so publishing a container image is a runnable operation on its own.
+# Without it the only route is the whole role, which pulls in its `base`
+# dependency - and base fails on the artifact server whenever a declared
+# interface has no carrier. Tags filter dependency tasks too, so
+# `--tags container-images` skips base entirely rather than working around it.
 - name: Ensure Podman is installed (for image artifacts)
   ansible.builtin.dnf:
     name: podman
     state: present
   when: (artifacts_podman_images | default([])) | length > 0
+  tags: [container-images]
 
+# `apply:` is load-bearing. A tag on a dynamic include applies to the include
+# statement alone, so tagging this task alone ran the include and then filtered
+# out every task inside it - the run reported ok and published nothing. This
+# cannot become import_tasks because it loops, so the tag is applied to the
+# included tasks explicitly.
 - name: Download podman image artifacts
-  ansible.builtin.include_tasks: fetch_podman_images.yml
+  ansible.builtin.include_tasks:
+    file: fetch_podman_images.yml
+    apply:
+      tags: [container-images]
   loop: "{{ artifacts_podman_images | default([]) }}"
   loop_control:
     loop_var: podman_artifact
+  tags: [container-images]
