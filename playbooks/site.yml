@@ -22,3 +22,10 @@
   become: true
   roles:
     - bootstrap
+
+# Hypervisors get a deliberately narrow baseline, not the `base` role: their OS
+# hostname is the PVE node name, and `base` is dnf-based while PVE is Debian.
+- hosts: hypervisors
+  become: true
+  roles:
+    - proxmox_node_base

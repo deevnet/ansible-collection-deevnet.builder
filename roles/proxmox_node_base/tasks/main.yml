@@ -1,0 +1,72 @@
+---
+# Refuse to run if the node is not what inventory thinks it is. Everything below
+# is keyed on proxmox_node, and PVE stores per-node config under
+# /etc/pve/nodes/<name>/ - acting on the wrong name would be worse than not
+# acting at all.
+# Uses the gathered fact rather than shelling out to `hostname`: ansible.builtin
+# .command does not support check mode, so a dry run would skip it, leave the
+# register empty, and fail this assert for the wrong reason.
+- name: Assert the node name matches inventory
+  ansible.builtin.assert:
+    that:
+      - ansible_facts['hostname'] == proxmox_node
+    fail_msg: >-
+      This host calls itself '{{ ansible_facts['hostname'] }}' but inventory declares
+      proxmox_node: {{ proxmox_node }}. That is not a drift this role corrects -
+      the OS hostname is the PVE node name and /etc/pve/nodes/{{ ansible_facts['hostname'] }}/
+      holds every guest config on it. Reconcile deliberately, not as a side
+      effect of a baseline run.
+    success_msg: "Node {{ proxmox_node }} confirmed."
+
+# PVE resolves its own node name here. The bootstrap script wrote this once at
+# install and nothing has revisited it since, so it can name an address the node
+# no longer has - or a domain that no longer exists.
+- name: Map the node name to its management address
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '^\s*\S+\s+.*\b{{ proxmox_node }}\b\s*$'
+    line: "{{ proxmox_node_base_mgmt_ip }}\t{{ proxmox_node_base_fqdn }} {{ proxmox_node }} {{ inventory_hostname }}"
+    state: present
+    backup: true
+  become: true
+
+# Same story: written once at install. Both nodes were still pointing at the
+# pre-migration flat-network gateway, so neither saw the site zone.
+- name: Point the resolver at the management gateway
+  ansible.builtin.copy:
+    dest: /etc/resolv.conf
+    mode: "0644"
+    backup: true
+    content: |
+      # Managed by deevnet.builder proxmox_node_base. Edits will be overwritten.
+      search {{ proxmox_node_base_search }}
+      nameserver {{ proxmox_node_base_resolver }}
+  become: true
+
+- name: Ensure the automation account exists
+  ansible.builtin.user:
+    name: "{{ proxmox_node_base_user }}"
+    uid: "{{ proxmox_node_base_uid }}"
+    shell: /bin/bash
+    create_home: true
+  become: true
+  when: proxmox_node_base_manage_user | bool
+
+- name: Install the automation public key
+  ansible.posix.authorized_key:
+    user: "{{ proxmox_node_base_user }}"
+    key: "{{ deevnet_autoprov_ssh_key }}"
+    exclusive: true
+  become: true
+  when: proxmox_node_base_manage_user | bool
+
+- name: Grant passwordless sudo
+  ansible.builtin.copy:
+    dest: "/etc/sudoers.d/010_{{ proxmox_node_base_user }}-nopasswd"
+    content: "{{ proxmox_node_base_user }} ALL=(ALL) NOPASSWD: ALL\n"
+    mode: "0440"
+    owner: root
+    group: root
+    validate: "visudo -cf %s"
+  become: true
+  when: proxmox_node_base_manage_user | bool

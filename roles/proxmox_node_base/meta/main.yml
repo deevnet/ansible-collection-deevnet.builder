@@ -1,0 +1,7 @@
+---
+galaxy_info:
+  role_name: proxmox_node_base
+  description: Baseline for a Proxmox node - hosts file, resolver, automation account
+  license: MIT
+  min_ansible_version: "2.14"
+dependencies: []

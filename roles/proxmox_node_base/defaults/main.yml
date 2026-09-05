@@ -1,0 +1,28 @@
+---
+# Baseline for a Proxmox node.
+#
+# Deliberately narrow. A hypervisor is not a general managed host: its OS
+# hostname IS its PVE node name, with /etc/pve/nodes/<name>/ keyed off it, so
+# this role never touches the hostname. It also cannot reuse deevnet.builder's
+# `base` role, which is dnf-based, because PVE is Debian.
+#
+# What it does own is the small set of files PVE needs correct and that nothing
+# else maintains: the loopback/FQDN mapping, the resolver, and the automation
+# account. All three were written once by the pve-bootstrap script at install
+# time and never revisited, so they drift silently.
+
+# The management address and resolver come from inventory rather than being
+# restated, so they cannot disagree with the addressing plan.
+proxmox_node_base_mgmt_ip: "{{ env.interfaces.eth0.ip }}"
+proxmox_node_base_resolver: "{{ deevnet_vlans.management.gateway }}"
+proxmox_node_base_search: "{{ deevnet_substrate }}.{{ deevnet_root_domain }} {{ deevnet_root_domain }}"
+
+# The canonical name in /etc/hosts is the PVE node name, not the inventory
+# hostname: PVE resolves its own node name through this file and will not start
+# cleanly otherwise. The inventory name is carried as an alias so both resolve.
+proxmox_node_base_fqdn: "{{ proxmox_node }}.{{ deevnet_substrate }}.{{ deevnet_root_domain }}"
+
+# Automation account, matching what every other managed host has.
+proxmox_node_base_user: a_autoprov
+proxmox_node_base_uid: 1000
+proxmox_node_base_manage_user: true
