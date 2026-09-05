@@ -6,7 +6,7 @@
 # the kickstart installation and rebooted.
 #
 # Prerequisites:
-# 1. Add the new host to your inventory (ansible-inventory-deevnet/dvntm/hosts.yml):
+# 1. Add the new host to your inventory (ansible-inventory-deevnet/mobile/hosts.yml):
 #
 #    all:
 #      children:
@@ -32,7 +32,7 @@
 #
 # Usage:
 #   ansible-playbook playbooks/provision-builder-node.yml \
-#     -i ../ansible-inventory-deevnet/dvntm \
+#     -i ../ansible-inventory-deevnet/mobile \
 #     -l n150-builder
 #
 # The playbook will:
