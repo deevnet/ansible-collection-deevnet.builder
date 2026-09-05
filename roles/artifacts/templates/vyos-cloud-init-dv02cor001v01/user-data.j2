@@ -1,5 +1,5 @@
 #cloud-config
-# VyOS cloud-init configuration for core-rt01
+# VyOS cloud-init configuration for dv02cor001v01
 # Managed by Ansible - deevnet.builder.artifacts role
 #
 # eth0 (WAN): BC:24:11:2E:26:4E - DHCP
@@ -15,7 +15,7 @@ vyos_config_commands:
   - set service ssh port '22'
 
   # Hostname
-  - set system host-name 'core-rt01'
+  - set system host-name 'dv02cor001v01'
   - set system domain-name 'deevnet.net'
 
   # WAN interface (eth0) - DHCP from upstream
@@ -36,7 +36,7 @@ write_files:
     permissions: '0775'
     content: |
       #!/bin/vbash
-      # Automated VyOS installation script for core-rt01
+      # Automated VyOS installation script for dv02cor001v01
       # Managed by Ansible - deevnet.builder.artifacts role
       #
       # This script detects if running from live boot (squashfs) and
