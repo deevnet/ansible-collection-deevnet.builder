@@ -34,7 +34,7 @@ artifacts_to_fetch: []
 artifacts_podman_images: []
 
 # Root directory for all HTTP-served files
-nginx_artifacts_root: /srv/dvntm-http
+nginx_artifacts_root: /srv/deevnet-http
 
 # Directory tree we want
 nginx_artifacts_dirs:

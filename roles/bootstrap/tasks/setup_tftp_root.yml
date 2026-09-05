@@ -70,7 +70,7 @@
 - name: Deploy iPXE boot script to HTTP artifacts (UEFI - ipxe mode)
   ansible.builtin.template:
     src: ipxe-boot.ipxe.j2
-    dest: "{{ nginx_artifacts_root | default('/srv/dvntm-http') }}/boot.ipxe"
+    dest: "{{ nginx_artifacts_root | default('/srv/deevnet-http') }}/boot.ipxe"
     owner: root
     group: root
     mode: "0644"
