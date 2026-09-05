@@ -20,7 +20,7 @@
   loop: "{{ nginx_artifacts_dirs }}"
   become: true
 
-# --- SELinux: allow nginx to read /srv/dvntm-http on Fedora/RHEL ---
+# --- SELinux: allow nginx to read the artifacts root on Fedora/RHEL ---
 
 - name: Ensure semanage is installed (for SELinux fcontext management)
   ansible.builtin.package:
