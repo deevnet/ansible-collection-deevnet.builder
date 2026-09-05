@@ -2,10 +2,10 @@
 # Deploy MAC-specific GRUB configs for automated PXE installs
 #
 # Reads from bootstrap_grub_mac_configs list:
-#   - hostname: vyos-rt01
+#   - hostname: dv02bld002v01
 #     mac: "BC:24:11:2E:26:4E"
 #     image_name: "VyOS Rolling"
-#     dest_subdir: "vyos"
+#     dest_subdir: "fedora/44"
 #     boot_options: "boot=live noautologin fetch=..."
 
 # An entry whose MAC renders empty means the host has no allocated identity yet
