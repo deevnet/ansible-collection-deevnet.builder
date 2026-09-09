@@ -66,9 +66,12 @@
           podman create
           --name {{ omada_container_name | default('omada-controller') }}
           --hostname omada-controller
+          --network {{ omada_network_mode }}
+          {% if omada_network_mode != 'host' %}
           {% for port in omada_ports %}
           -p {{ port.host }}:{{ port.container }}/{{ port.protocol }}
           {% endfor %}
+          {% endif %}
           {% for volume in omada_volumes %}
           -v {{ volume.host }}:{{ volume.container }}
           {% endfor %}

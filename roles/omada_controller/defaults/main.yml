@@ -12,7 +12,23 @@ omada_tarball_url: "http://127.0.0.1/container-images/omada-controller/{{ omada_
 # Container runtime settings
 omada_container_name: "omada-controller"
 
-# Network port mappings
+# Container network mode.
+#
+# Must be "host". Omada device discovery is a broadcast to 255.255.255.255:29810,
+# and podman's published-port DNAT only forwards unicast destined to a host
+# address - broadcasts are delivered to podman's own port-reservation socket and
+# never reach the container. With bridge networking the controller therefore sees
+# zero devices even though the APs and switches are broadcasting correctly on the
+# same L2 segment.
+#
+# When this is "host" the port publishing below is skipped: the container binds
+# the host's ports directly, and firewalld (configure_firewall.yml) becomes the
+# only thing gating access. Keep omada_ports in sync with the firewall lists.
+omada_network_mode: "host"
+
+# Network port mappings.
+# Only published when omada_network_mode != "host"; otherwise these document the
+# ports the container binds directly and should match the firewall lists below.
 # See: https://www.tp-link.com/us/support/faq/3281/
 omada_ports:
   # Management portal (HTTP)
