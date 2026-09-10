@@ -1,0 +1,194 @@
+---
+# Create (or re-create) the Omada automation account and point the vault at it.
+#
+# Usage:
+#   cd ansible-collection-deevnet.builder
+#   ansible-playbook playbooks/omada-automation-user.yml
+#   # then, in ansible-inventory-deevnet:
+#   make vault
+#
+# Why this account exists
+# -----------------------
+# Automation used to talk to the controller as the Owner account. The Owner is
+# cloud-registered (`registeredRoot: true` in /api/info), and the local API
+# refuses to change its password - PATCH /users/{id} answers -1005 "Operation
+# forbidden" once the payload is complete enough to validate. So the credential
+# automation depended on was one that could not be rotated without a human in
+# the TP-Link UI.
+#
+# This account is local, has the site-scoped Admin role, and CAN be rotated
+# through the API - re-running this play issues a fresh password and updates the
+# vault. The Owner is left alone for humans, and is kept in the vault as
+# vault_omada_owner_* which nothing maps to a role variable.
+#
+# The Admin role carries adopt/devices/network/deviceAccount privileges, which
+# covers SSID management (playbooks/migration/13-omada-ssids.yml in deevnet.net)
+# and device adoption.
+
+- name: Create the Omada automation user
+  hosts: network_controllers
+  gather_facts: false
+  vars:
+    omada_user_url: "https://localhost:8043"
+    omada_user_name: a_autoprov
+    omada_user_email: "a_autoprov@deevnet.net"
+    omada_user_role: admin_id
+    omada_user_vault: >-
+      {{ playbook_dir }}/../../ansible-inventory-deevnet/mobile/group_vars/network_controllers/vault.yml
+
+  tasks:
+    # set_fact, NOT a vars: entry. A lookup in vars: is re-evaluated on EVERY
+    # reference, so the value used to create the account differs from the one
+    # used to verify it and from the one written to the vault - leaving an
+    # account whose password nobody holds. Pin it once.
+    - name: Generate the automation password
+      ansible.builtin.set_fact:
+        omada_user_pw: "{{ lookup('password', '/dev/null length=32 chars=ascii_letters,digits') }}"
+      no_log: true
+
+    - name: Discover the controller id
+      ansible.builtin.uri:
+        url: "{{ omada_user_url }}/api/info"
+        validate_certs: false
+      register: omada_user_info
+
+    - name: Log in as the Owner
+      ansible.builtin.uri:
+        url: "{{ omada_user_url }}/{{ omada_user_info.json.result.omadacId }}/api/v2/login"
+        method: POST
+        body_format: json
+        body:
+          username: "{{ vault_omada_owner_user }}"
+          password: "{{ vault_omada_owner_password }}"
+        validate_certs: false
+      register: omada_user_login
+      no_log: true
+
+    - name: Set the API base and session headers
+      ansible.builtin.set_fact:
+        omada_user_api: "{{ omada_user_url }}/{{ omada_user_info.json.result.omadacId }}/api/v2"
+        omada_user_hdr:
+          Csrf-Token: "{{ omada_user_login.json.result.token }}"
+          Cookie: "TPOMADA_SESSIONID={{ omada_user_login.cookies.TPOMADA_SESSIONID | default('') }}"
+      no_log: true
+
+    - name: Find the site
+      ansible.builtin.uri:
+        url: "{{ omada_user_api }}/sites?currentPageSize=100&currentPage=1"
+        headers: "{{ omada_user_hdr }}"
+        validate_certs: false
+      register: omada_user_sites
+
+    - name: List existing accounts
+      ansible.builtin.uri:
+        url: "{{ omada_user_api }}/users"
+        headers: "{{ omada_user_hdr }}"
+        validate_certs: false
+      register: omada_user_existing
+
+    # DELETE needs an explicit empty JSON body. Without one the controller
+    # answers a bare "General error" and the account silently survives.
+    - name: Remove any existing automation account, so this play is re-runnable
+      ansible.builtin.uri:
+        url: "{{ omada_user_api }}/users/{{ item.id }}"
+        method: DELETE
+        body_format: json
+        body: {}
+        headers: "{{ omada_user_hdr }}"
+        validate_certs: false
+      loop: >-
+        {{ omada_user_existing.json.result.data
+           | selectattr('name', 'equalto', omada_user_name) | list }}
+      loop_control:
+        label: "{{ item.name }} ({{ item.id }})"
+
+    # `privilege.sites` must be a list of OBJECTS. A list of bare site ids is
+    # rejected with -1001 "Invalid request parameters".
+    - name: Create the automation account
+      ansible.builtin.uri:
+        url: "{{ omada_user_api }}/users"
+        method: POST
+        body_format: json
+        body:
+          name: "{{ omada_user_name }}"
+          password: "{{ omada_user_pw }}"
+          email: "{{ omada_user_email }}"
+          roleId: "{{ omada_user_role }}"
+          type: 0
+          alert: false
+          privilege:
+            all: false
+            sites:
+              - key: "{{ omada_user_sites.json.result.data[0].id }}"
+                name: "{{ omada_user_sites.json.result.data[0].name }}"
+                category: advanced
+        headers: "{{ omada_user_hdr }}"
+        validate_certs: false
+      register: omada_user_create
+      no_log: true
+
+    - name: Fail clearly if the account was not created
+      ansible.builtin.assert:
+        that:
+          - omada_user_create.json.errorCode == 0
+        fail_msg: >-
+          Could not create {{ omada_user_name }}:
+          {{ omada_user_create.json.msg | default('unknown') }}. Vault untouched.
+        success_msg: "{{ omada_user_name }} created."
+
+    # Verified against a fresh session, and against the read path the SSID play
+    # actually uses - authenticating is not the same as being able to work.
+    - name: Verify the new account authenticates
+      ansible.builtin.uri:
+        url: "{{ omada_user_api }}/login"
+        method: POST
+        body_format: json
+        body: { username: "{{ omada_user_name }}", password: "{{ omada_user_pw }}" }
+        validate_certs: false
+      register: omada_user_verify
+      no_log: true
+
+    - name: Verify the new account can read its site
+      ansible.builtin.uri:
+        url: "{{ omada_user_api }}/sites?currentPageSize=100&currentPage=1"
+        headers:
+          Csrf-Token: "{{ omada_user_verify.json.result.token }}"
+          Cookie: "TPOMADA_SESSIONID={{ omada_user_verify.cookies.TPOMADA_SESSIONID | default('') }}"
+        validate_certs: false
+      register: omada_user_check
+      failed_when: false
+
+    - name: Assert the account is usable before the vault is touched
+      ansible.builtin.assert:
+        that:
+          - omada_user_verify.json.errorCode == 0
+          - omada_user_check.json.errorCode | default(-1) == 0
+          - omada_user_check.json.result.data | length > 0
+        fail_msg: >-
+          {{ omada_user_name }} exists but cannot log in or cannot see its site.
+          Vault left untouched so the working credential is not lost.
+        success_msg: >-
+          {{ omada_user_name }} authenticates and can read
+          {{ omada_user_check.json.result.data | map(attribute='name') | list }}.
+
+    - name: Point the vault at the automation account
+      ansible.builtin.lineinfile:
+        path: "{{ omada_user_vault }}"
+        regexp: '^vault_omada_admin_user:'
+        line: 'vault_omada_admin_user: "{{ omada_user_name }}"'
+      delegate_to: localhost
+      no_log: true
+
+    - name: Write its password to the vault
+      ansible.builtin.lineinfile:
+        path: "{{ omada_user_vault }}"
+        regexp: '^vault_omada_admin_password:'
+        line: 'vault_omada_admin_password: "{{ omada_user_pw }}"'
+      delegate_to: localhost
+      no_log: true
+
+    - name: Remind that the vault is now plaintext
+      ansible.builtin.debug:
+        msg: >-
+          Vault now holds {{ omada_user_name }}. It is DECRYPTED - run `make vault`
+          in ansible-inventory-deevnet before committing.
