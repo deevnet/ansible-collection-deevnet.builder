@@ -10,12 +10,28 @@
     mode: '0755'
   become: true
 
-- name: Create omada controller persistent data directories
-  ansible.builtin.file:
+# Create only; never re-own. The image's entrypoint (fix_permissions) hands
+# data and logs to its own omada account (UID 508) on every start, so forcing
+# root:root here would take them back on each run and leave the running
+# controller unable to create new entries there until it restarts. Found in
+# deevnet.mgmt's copy of this role during CHG-0008. item.mode applies only when
+# a directory is first created.
+- name: Check which omada controller persistent data directories exist
+  ansible.builtin.stat:
     path: "{{ item.path }}"
+  loop: "{{ omada_data_dirs }}"
+  register: _omada_data_dir_stat
+  become: true
+
+- name: Create missing omada controller persistent data directories
+  ansible.builtin.file:
+    path: "{{ item.item.path }}"
     state: directory
     owner: root
     group: root
-    mode: "{{ item.mode }}"
-  loop: "{{ omada_data_dirs }}"
+    mode: "{{ item.item.mode }}"
+  loop: "{{ _omada_data_dir_stat.results }}"
+  loop_control:
+    label: "{{ item.item.path }}"
+  when: not item.stat.exists
   become: true
