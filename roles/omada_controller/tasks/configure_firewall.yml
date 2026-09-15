@@ -16,6 +16,18 @@
     - ansible_facts.services['firewalld.service'].state == 'running'
   become: true
 
+- name: Close ports earlier versions of this role opened
+  ansible.posix.firewalld:
+    port: "{{ item }}"
+    permanent: true
+    state: disabled
+    immediate: true
+  loop: "{{ omada_firewall_ports_retired }}"
+  when:
+    - "'firewalld.service' in ansible_facts.services"
+    - ansible_facts.services['firewalld.service'].state == 'running'
+  become: true
+
 - name: Open UDP ports in firewalld for omada controller
   ansible.posix.firewalld:
     port: "{{ item }}/udp"
