@@ -29,3 +29,6 @@
   become: true
   roles:
     - proxmox_node_base
+    # Data-disk volume groups, thin pools and PVE storage entries, from
+    # proxmox_node_storage in host_vars. Skips nodes that declare none.
+    - proxmox_node_storage

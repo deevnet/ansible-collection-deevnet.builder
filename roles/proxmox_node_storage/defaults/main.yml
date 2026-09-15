@@ -1,0 +1,37 @@
+---
+# Local storage for a Proxmox node: the volume groups and thin pools on its data
+# disks, and the PVE storage entries that point at them.
+#
+# Declared per hypervisor as `proxmox_node_storage` in host_vars. A node that
+# declares none is skipped. What the Proxmox installer builds on the OS disk -
+# the `pve` volume group and `local-lvm` - belongs to the installer, not here.
+#
+# Shape:
+#
+#   proxmox_node_storage:
+#     volume_groups:
+#       - name: vgbigdata
+#         # A stable path. /dev/sdX names can swap between boots.
+#         device: /dev/disk/by-id/<id>-part1
+#     thin_pools:
+#       - vg: vgbigdata
+#         name: bigthin
+#         size: 1100g            # lvcreate --size, used only when creating
+#     storages:
+#       - id: local-lvm-big-thin
+#         type: lvmthin          # lvmthin or lvm
+#         vgname: vgbigdata
+#         thinpool: bigthin      # lvmthin only
+#         content: [images, rootdir]
+proxmox_node_storage: {}
+
+# Creating a volume group writes an LVM label to a disk. On a disk that still
+# holds data this node has lost track of, that is destructive, so it is refused
+# unless asked for on the command line:
+#
+#   -e proxmox_node_storage_allow_create=true
+#
+# Recovering onto a reinstalled OS disk never needs it: LVM finds the data
+# disk's existing volume group at boot, and only the PVE storage entries -
+# which live on the OS disk - have to be put back.
+proxmox_node_storage_allow_create: false

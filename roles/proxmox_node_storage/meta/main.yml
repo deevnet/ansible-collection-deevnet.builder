@@ -1,0 +1,7 @@
+---
+galaxy_info:
+  role_name: proxmox_node_storage
+  description: Volume groups, thin pools and PVE storage entries on a Proxmox node's data disks
+  license: MIT
+  min_ansible_version: "2.14"
+dependencies: []

@@ -1,0 +1,219 @@
+---
+# Reconciles toward the declaration without ever removing or shrinking anything:
+# missing pieces are created, pieces that disagree with inventory fail the run.
+#
+# Plain LVM and pvesm commands rather than community.general's lvg/lvol, which
+# this collection does not otherwise depend on. The thin-pool commands are the
+# ones Proxmox's Storage: LVM Thin page documents.
+
+- name: Skip nodes that declare no local storage
+  ansible.builtin.meta: end_host
+  when: proxmox_node_storage | default({}) | length == 0
+
+- name: Read volume groups
+  ansible.builtin.command:
+    argv: [vgs, --reportformat, json, -o, vg_name]
+  register: _pns_vgs
+  changed_when: false
+  check_mode: false
+  become: true
+
+- name: Read logical volumes
+  ansible.builtin.command:
+    argv: [lvs, --reportformat, json, -o, "vg_name,lv_name,lv_attr,lv_size"]
+  register: _pns_lvs
+  changed_when: false
+  check_mode: false
+  become: true
+
+- name: Read the PVE storage configuration
+  ansible.builtin.command:
+    argv: [pvesh, get, /storage, --output-format, json]
+  register: _pns_storage
+  changed_when: false
+  check_mode: false
+  become: true
+
+- name: Index what the node already has
+  ansible.builtin.set_fact:
+    _pns_vg_names: "{{ (_pns_vgs.stdout | from_json).report[0].vg | map(attribute='vg_name') | list }}"
+    _pns_lv_index: >-
+      {{ dict((_pns_lvs.stdout | from_json).report[0].lv
+              | map(attribute='vg_name')
+              | zip((_pns_lvs.stdout | from_json).report[0].lv | map(attribute='lv_name'))
+              | map('join', '/')
+              | zip((_pns_lvs.stdout | from_json).report[0].lv)) }}
+    _pns_storage_index: >-
+      {{ dict((_pns_storage.stdout | from_json) | map(attribute='storage')
+              | zip(_pns_storage.stdout | from_json)) }}
+    _pns_volume_groups: "{{ proxmox_node_storage.volume_groups | default([]) }}"
+    _pns_thin_pools: "{{ proxmox_node_storage.thin_pools | default([]) }}"
+    _pns_storages: "{{ proxmox_node_storage.storages | default([]) }}"
+
+# --- Volume groups -----------------------------------------------------------
+
+- name: Refuse to create a missing volume group unless asked
+  ansible.builtin.assert:
+    that:
+      - proxmox_node_storage_allow_create | bool
+    fail_msg: >-
+      Volume group {{ item.name }} does not exist on {{ inventory_hostname }}.
+      Creating it writes an LVM label to {{ item.device }}. If that disk should
+      still hold data, stop: run `pvs` and `vgscan` and find out why LVM does not
+      see it. On a new or wiped disk, rerun with
+      -e proxmox_node_storage_allow_create=true.
+    quiet: true
+  loop: "{{ _pns_volume_groups | rejectattr('name', 'in', _pns_vg_names) | list }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Check each new volume group's device exists
+  ansible.builtin.stat:
+    path: "{{ item.device }}"
+  register: _pns_devices
+  loop: "{{ _pns_volume_groups | rejectattr('name', 'in', _pns_vg_names) | list }}"
+  loop_control:
+    label: "{{ item.device }}"
+  become: true
+
+- name: Fail if a device is missing
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+    fail_msg: "{{ item.item.device }} does not exist. Check the disk's by-id path."
+    quiet: true
+  loop: "{{ _pns_devices.results }}"
+  loop_control:
+    label: "{{ item.item.device }}"
+
+# blkid exits 2 when a device carries no recognised signature. Anything else -
+# an old filesystem, a RAID member, a leftover LVM label - stops the run.
+- name: Look for an existing signature on each new device
+  ansible.builtin.command:
+    argv: [blkid, -p, "{{ item.device }}"]
+  register: _pns_signatures
+  changed_when: false
+  failed_when: _pns_signatures.rc not in [0, 2]
+  check_mode: false
+  loop: "{{ _pns_volume_groups | rejectattr('name', 'in', _pns_vg_names) | list }}"
+  loop_control:
+    label: "{{ item.device }}"
+  become: true
+
+- name: Refuse to label a device that is not blank
+  ansible.builtin.assert:
+    that:
+      - item.rc == 2
+    fail_msg: >-
+      {{ item.item.device }} already carries a signature:
+      {{ item.stdout }}. This role does not wipe disks. Clear it by hand only if
+      you are certain the data is not needed.
+    quiet: true
+  loop: "{{ _pns_signatures.results }}"
+  loop_control:
+    label: "{{ item.item.device }}"
+
+- name: Create missing volume groups
+  ansible.builtin.command:
+    argv: [vgcreate, "{{ item.name }}", "{{ item.device }}"]
+  changed_when: true
+  loop: "{{ _pns_volume_groups | rejectattr('name', 'in', _pns_vg_names) | list }}"
+  loop_control:
+    label: "{{ item.name }} on {{ item.device }}"
+  become: true
+
+# --- Thin pools ----------------------------------------------------------------
+
+- name: Fail if a declared thin pool name is taken by something else
+  ansible.builtin.assert:
+    that:
+      - _pns_lv_index[item.vg ~ '/' ~ item.name].lv_attr[0] == 't'
+    fail_msg: >-
+      {{ item.vg }}/{{ item.name }} exists but is not a thin pool
+      (lv_attr {{ _pns_lv_index[item.vg ~ '/' ~ item.name].lv_attr }}).
+    quiet: true
+  loop: "{{ _pns_thin_pools }}"
+  loop_control:
+    label: "{{ item.vg }}/{{ item.name }}"
+  when: (item.vg ~ '/' ~ item.name) in _pns_lv_index
+
+# Proxmox's documented sequence: create a plain LV, then convert it. --yes
+# answers lvconvert's confirmation, which is safe here only because the LV was
+# created empty by the task before it.
+- name: Create missing thin pools
+  ansible.builtin.command:
+    argv: [lvcreate, -L, "{{ item.size }}", -n, "{{ item.name }}", "{{ item.vg }}"]
+  changed_when: true
+  loop: "{{ _pns_thin_pools }}"
+  loop_control:
+    label: "{{ item.vg }}/{{ item.name }} ({{ item.size }})"
+  when: (item.vg ~ '/' ~ item.name) not in _pns_lv_index
+  register: _pns_new_pools
+  become: true
+
+- name: Convert new logical volumes to thin pools
+  ansible.builtin.command:
+    argv: [lvconvert, --yes, --type, thin-pool, "{{ item.item.vg }}/{{ item.item.name }}"]
+  changed_when: true
+  loop: "{{ _pns_new_pools.results | selectattr('changed', 'defined') | selectattr('changed') | list }}"
+  loop_control:
+    label: "{{ item.item.vg }}/{{ item.item.name }}"
+  become: true
+
+# --- PVE storage entries -------------------------------------------------------
+
+- name: Fail if a storage ID exists but points somewhere else
+  ansible.builtin.assert:
+    that:
+      - _pns_storage_index[item.id].type == item.type
+      - _pns_storage_index[item.id].vgname | default('') == item.vgname
+      - _pns_storage_index[item.id].thinpool | default('') == item.thinpool | default('')
+    fail_msg: >-
+      Storage {{ item.id }} exists as {{ _pns_storage_index[item.id].type }}
+      on {{ _pns_storage_index[item.id].vgname | default('?') }}/{{ _pns_storage_index[item.id].thinpool | default('-') }},
+      but inventory declares {{ item.type }} on {{ item.vgname }}/{{ item.thinpool | default('-') }}.
+      Moving a storage ID strands every disk that references it; this role will not.
+    quiet: true
+  loop: "{{ _pns_storages }}"
+  loop_control:
+    label: "{{ item.id }}"
+  when: item.id in _pns_storage_index
+
+- name: Add missing storage entries
+  ansible.builtin.command:
+    argv: >-
+      {{ ['pvesm', 'add', item.type, item.id, '--vgname', item.vgname]
+         + (['--thinpool', item.thinpool] if item.type == 'lvmthin' else [])
+         + ['--content', item.content | join(',')] }}
+  changed_when: true
+  loop: "{{ _pns_storages }}"
+  loop_control:
+    label: "{{ item.id }} ({{ item.type }})"
+  when: item.id not in _pns_storage_index
+  become: true
+
+- name: Align content types on existing storage entries
+  ansible.builtin.command:
+    argv: [pvesm, set, "{{ item.id }}", --content, "{{ item.content | join(',') }}"]
+  changed_when: true
+  loop: "{{ _pns_storages }}"
+  loop_control:
+    label: "{{ item.id }}"
+  when:
+    - item.id in _pns_storage_index
+    - (_pns_storage_index[item.id].content | default('')).split(',') | sort != item.content | sort
+  become: true
+
+- name: Confirm each declared storage is active on this node
+  ansible.builtin.command:
+    argv: [pvesh, get, "/nodes/{{ proxmox_node }}/storage/{{ item.id }}/status", --output-format, json]
+  register: _pns_status
+  changed_when: false
+  check_mode: false
+  failed_when: >-
+    _pns_status.rc != 0
+    or (_pns_status.stdout | from_json).active | default(0) | int != 1
+  loop: "{{ _pns_storages }}"
+  loop_control:
+    label: "{{ item.id }}"
+  become: true
