@@ -29,7 +29,9 @@ omada_network_mode: "host"
 # Network port mappings.
 # Only published when omada_network_mode != "host"; otherwise these document the
 # ports the container binds directly and should match the firewall lists below.
-# See: https://www.tp-link.com/us/support/faq/3281/
+# Source: Omada, "Which Ports do Omada SDN Controller and Omada Discovery
+# Utility Use (above Controller 5.0.15)", updated 08-28-2026,
+# https://support.omadanetworks.com/us/document/13090/
 omada_ports:
   # Management portal (HTTP)
   - host: 8088
@@ -57,20 +59,26 @@ omada_ports:
   - host: 29813
     container: 29813
     protocol: tcp
-  # Controller discovery and adoption (v2)
-  - host: 29814
-    container: 29814
-    protocol: udp
+  # Manage devices on v5-adapted firmware
   - host: 29814
     container: 29814
     protocol: tcp
-  # Device discovery and adoption
+  # From v5.9: device info and packet capture files
+  - host: 29815
+    container: 29815
+    protocol: tcp
+  # From v5.9: remote control terminal session
+  - host: 29816
+    container: 29816
+    protocol: tcp
+  # Communication between devices and the controller
+  - host: 29817
+    container: 29817
+    protocol: tcp
+  # Discovery by the Omada app on the same network
   - host: 27001
     container: 27001
     protocol: udp
-  - host: 27002
-    container: 27002
-    protocol: tcp
 
 # Persistent data directories
 omada_data_root: "/opt/omada-controller"
@@ -115,12 +123,21 @@ omada_firewall_ports_tcp:
   - 29812
   - 29813
   - 29814
-  - 27002
+  - 29815
+  - 29816
+  - 29817
 
 omada_firewall_ports_udp:
   - 29810
-  - 29814
   - 27001
+
+# Opened by earlier versions of these lists and absent from Omada's port
+# reference: 29814 is TCP only there, and 27002 is not listed at all. Closed on
+# every run so a host configured from the old lists converges. Kept in step with
+# deevnet.mgmt's omada_controller, which runs the site's controller.
+omada_firewall_ports_retired:
+  - 29814/udp
+  - 27002/tcp
 
 # SELinux configuration
 omada_selinux_context: "container_file_t"
