@@ -13,7 +13,12 @@
   roles:
     - artifacts
 
-- hosts: network_controllers
+# The Builder's controller is the site controller's COLD FALLBACK (ADR-0013).
+# The site's controller runs in the network management VM, configured by
+# deevnet.mgmt. Management-plane hosts are excluded so this role - with its
+# base and artifacts dependencies - can never land on that VM; the Builder only
+# matches while it has been put back in network_controllers for a recovery.
+- hosts: network_controllers:!management_plane
   become: true
   roles:
     - omada_controller
