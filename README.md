@@ -58,7 +58,13 @@ PXE network boot server:
 - SELinux context management for TFTP directories
 
 ### `omada_controller`
-TP-Link Omada network controller (containerized):
+TP-Link Omada network controller (containerized).
+
+**Cold fallback only.** The site's controller runs in the network management VM
+(`dv02nms001v01`), configured by `deevnet.mgmt`'s `omada_controller` role
+(ADR-0013). This role is kept for when the management hypervisor is down: put the
+Builder back in `network_controllers` for the recovery. Its play excludes
+`management_plane` hosts, so it never touches the VM.
 
 - Podman container from local artifact server tarball
 - Systemd service for lifecycle management

@@ -19,7 +19,7 @@ repo-root/                 # Collection root = git repo root (Galaxy-compatible 
     ├── base/              # Baseline packages (dnf-based)
     ├── workstation/       # Dev users, dev tools (git, terraform, packer), AI tooling
     ├── artifacts/         # nginx artifact server with ISO/image fetching
-    ├── omada_controller/  # TP-Link Omada network controller (podman container via systemd)
+    ├── omada_controller/  # TP-Link Omada controller (podman via systemd); cold fallback for the nms VM (ADR-0013)
     └── bootstrap/         # PXE boot server (dnsmasq DHCP/TFTP) for network installations
 ```
 
