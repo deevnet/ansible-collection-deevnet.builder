@@ -6,8 +6,13 @@
     mode: "0755"
   become: true
 
+# `apply:` for the same reason as the podman images in main.yml: without it,
+# `--tags fetched-artifacts` runs the include and filters out every task in it.
 - name: Process requested artifacts
-  ansible.builtin.include_tasks: "fetch_{{ artifact_item.type }}.yml"
+  ansible.builtin.include_tasks:
+    file: "fetch_{{ artifact_item.type }}.yml"
+    apply:
+      tags: [fetched-artifacts]
   loop: "{{ artifacts_to_fetch }}"
   loop_control:
     loop_var: artifact_item
