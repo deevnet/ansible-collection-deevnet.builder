@@ -1,0 +1,16 @@
+---
+# Declared per hypervisor in host_vars. A node that declares nothing is skipped.
+#
+# proxmox_node_access:
+#   roles:
+#     - id: DeevnetTenantBuilder
+#       privs: [VM.Allocate, VM.Audit]
+#   users:
+#     - id: deevnet-api@pve
+#       tokens: [tenants]          # verified, never created (see README)
+#   acls:
+#     - path: /
+#       role: DeevnetTenantBuilder
+#       users: [deevnet-api@pve]
+#       tokens: [deevnet-api@pve!tenants]
+proxmox_node_access: {}

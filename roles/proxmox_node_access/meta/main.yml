@@ -1,0 +1,7 @@
+---
+galaxy_info:
+  role_name: proxmox_node_access
+  description: Proxmox roles, users, API tokens and ACLs that automation uses, declared per node
+  license: MIT
+  min_ansible_version: "2.14"
+dependencies: []

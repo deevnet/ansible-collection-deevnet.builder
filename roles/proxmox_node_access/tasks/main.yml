@@ -1,0 +1,115 @@
+---
+# Reconciles toward the declaration without ever removing anything: missing
+# roles, users and ACL entries are created, a role whose privileges differ is
+# brought to the declared set, and a missing API token fails the run - its
+# secret is shown once, so creating it here would print it into Ansible output.
+
+- name: Skip nodes that declare no access
+  ansible.builtin.meta: end_host
+  when: proxmox_node_access | default({}) | length == 0
+
+- name: Read roles
+  ansible.builtin.command:
+    argv: [pveum, role, list, --output-format, json]
+  register: _pna_roles
+  changed_when: false
+  check_mode: false
+  become: true
+
+- name: Read users
+  ansible.builtin.command:
+    argv: [pveum, user, list, --output-format, json]
+  register: _pna_users
+  changed_when: false
+  check_mode: false
+  become: true
+
+- name: Read ACLs
+  ansible.builtin.command:
+    argv: [pveum, acl, list, --output-format, json]
+  register: _pna_acls
+  changed_when: false
+  check_mode: false
+  become: true
+
+- name: Index what the node already has
+  ansible.builtin.set_fact:
+    # role id -> sorted privilege list
+    _pna_role_privs: >-
+      {% set out = {} %}{% for r in (_pna_roles.stdout | from_json) %}{% set _ = out.update({r.roleid: ((r.privs | default('')).split(',') | reject('equalto', '') | sort | list)}) %}{% endfor %}{{ out }}
+    _pna_user_ids: "{{ (_pna_users.stdout | from_json) | map(attribute='userid') | list }}"
+    # "path|type|ugid|roleid" for every ACL entry
+    _pna_acl_keys: >-
+      {% set out = [] %}{% for e in (_pna_acls.stdout | from_json) %}{% set _ = out.append(e.path ~ '|' ~ e.type ~ '|' ~ e.ugid ~ '|' ~ e.roleid) %}{% endfor %}{{ out }}
+
+- name: Create missing roles
+  ansible.builtin.command:
+    argv: [pveum, role, add, "{{ item.id }}", --privs, "{{ item.privs | sort | join(',') }}"]
+  loop: "{{ proxmox_node_access.roles | default([]) }}"
+  loop_control:
+    label: "{{ item.id }}"
+  when: item.id not in _pna_role_privs
+  become: true
+
+- name: Bring existing roles to their declared privileges
+  ansible.builtin.command:
+    argv: [pveum, role, modify, "{{ item.id }}", --privs, "{{ item.privs | sort | join(',') }}"]
+  loop: "{{ proxmox_node_access.roles | default([]) }}"
+  loop_control:
+    label: "{{ item.id }}"
+  when:
+    - item.id in _pna_role_privs
+    - _pna_role_privs[item.id] != (item.privs | sort)
+  become: true
+
+- name: Create missing users
+  ansible.builtin.command:
+    argv: [pveum, user, add, "{{ item.id }}"]
+  loop: "{{ proxmox_node_access.users | default([]) }}"
+  loop_control:
+    label: "{{ item.id }}"
+  when: item.id not in _pna_user_ids
+  become: true
+
+- name: Read each declared user's tokens
+  ansible.builtin.command:
+    argv: [pveum, user, token, list, "{{ item.id }}", --output-format, json]
+  loop: "{{ proxmox_node_access.users | default([]) | selectattr('tokens', 'defined') | list }}"
+  loop_control:
+    label: "{{ item.id }}"
+  register: _pna_tokens
+  changed_when: false
+  check_mode: false
+  failed_when: false
+  become: true
+
+- name: Missing API tokens stop the run
+  ansible.builtin.fail:
+    msg: >-
+      Token {{ item.0.item.id }}!{{ item.1 }} is declared but missing. Issue it by hand, since its
+      secret is shown once: `pveum user token add {{ item.0.item.id }} {{ item.1 }}`. Put the secret
+      in the vault, then make vault, commit and PUSH before anything else (the lock-in rule),
+      redeploy what uses it, and run this role again for its ACLs.
+  loop: "{{ _pna_tokens.results | subelements('item.tokens') }}"
+  loop_control:
+    label: "{{ item.0.item.id }}!{{ item.1 }}"
+  when: >-
+    item.1 not in ((item.0.stdout | default('[]') | from_json) | map(attribute='tokenid') | list)
+
+- name: Grant missing ACL entries to users
+  ansible.builtin.command:
+    argv: [pveum, acl, modify, "{{ item.0.path }}", --roles, "{{ item.0.role }}", --users, "{{ item.1 }}"]
+  loop: "{{ proxmox_node_access.acls | default([]) | subelements('users', skip_missing=True) }}"
+  loop_control:
+    label: "{{ item.0.path }} {{ item.1 }} {{ item.0.role }}"
+  when: (item.0.path ~ '|user|' ~ item.1 ~ '|' ~ item.0.role) not in _pna_acl_keys
+  become: true
+
+- name: Grant missing ACL entries to tokens
+  ansible.builtin.command:
+    argv: [pveum, acl, modify, "{{ item.0.path }}", --roles, "{{ item.0.role }}", --tokens, "{{ item.1 }}"]
+  loop: "{{ proxmox_node_access.acls | default([]) | subelements('tokens', skip_missing=True) }}"
+  loop_control:
+    label: "{{ item.0.path }} {{ item.1 }} {{ item.0.role }}"
+  when: (item.0.path ~ '|token|' ~ item.1 ~ '|' ~ item.0.role) not in _pna_acl_keys
+  become: true
