@@ -37,3 +37,7 @@
     # Data-disk volume groups, thin pools and PVE storage entries, from
     # proxmox_node_storage in host_vars. Skips nodes that declare none.
     - proxmox_node_storage
+    # Proxmox roles, users, tokens (verified only) and ACLs that automation and
+    # the Deevnet API use, from proxmox_node_access in host_vars.
+    - role: proxmox_node_access
+      tags: [proxmox-access]
