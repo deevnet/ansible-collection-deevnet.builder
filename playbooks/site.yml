@@ -2,6 +2,9 @@
   become: true
   roles:
     - base
+    # The site root in the OS trust store (ADR-0030 §7), so Ansible, Packer and
+    # Terraform on the Builder verify without per-tool CA flags.
+    - site_trust
 
 - hosts: workstations
   become: true
@@ -34,6 +37,7 @@
   become: true
   roles:
     - proxmox_node_base
+    - site_trust
     # Data-disk volume groups, thin pools and PVE storage entries, from
     # proxmox_node_storage in host_vars. Skips nodes that declare none.
     - proxmox_node_storage

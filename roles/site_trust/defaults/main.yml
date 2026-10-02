@@ -1,0 +1,13 @@
+---
+# The site root (ADR-0030 §7), from the inventory. Every substrate host trusts
+# it at the operating-system level, so tools verify without per-tool CA flags.
+site_trust_root_local: "{{ site_root_ca_file }}"
+site_trust_name: "{{ site_root_ca_name | regex_replace('\\.pem$', '') }}"
+
+# Fedora/RHEL take any name under anchors/; Debian (Proxmox) reads only *.crt.
+site_trust_anchor:
+  RedHat: "/etc/pki/ca-trust/source/anchors/{{ site_trust_name }}.pem"
+  Debian: "/usr/local/share/ca-certificates/{{ site_trust_name }}.crt"
+site_trust_update:
+  RedHat: [update-ca-trust, extract]
+  Debian: [update-ca-certificates]
