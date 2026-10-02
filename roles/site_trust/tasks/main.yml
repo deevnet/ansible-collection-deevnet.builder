@@ -1,0 +1,37 @@
+---
+- name: Learn the OS family
+  ansible.builtin.setup:
+    gather_subset: [min]
+  when: ansible_facts.os_family is not defined
+
+- name: Refuse an OS this role does not know
+  ansible.builtin.assert:
+    that: ansible_facts.os_family in site_trust_anchor
+    fail_msg: "site_trust knows {{ site_trust_anchor.keys() | list }}, not {{ ansible_facts.os_family }}"
+    quiet: true
+
+- name: Install the site root as a trust anchor
+  ansible.builtin.copy:
+    src: "{{ site_trust_root_local }}"
+    dest: "{{ site_trust_anchor[ansible_facts.os_family] }}"
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  register: site_trust_anchor_file
+
+# Run now rather than from a handler: a later task in the same play may dial a
+# service whose certificate chains to this root.
+- name: Rebuild the trust store
+  ansible.builtin.command:
+    argv: "{{ site_trust_update[ansible_facts.os_family] }}"
+  when: site_trust_anchor_file is changed
+  become: true
+  changed_when: true
+
+- name: Check the store now trusts the site root
+  ansible.builtin.command:
+    argv: [openssl, verify, "{{ site_trust_anchor[ansible_facts.os_family] }}"]
+  changed_when: false
+  check_mode: false
+  become: true
