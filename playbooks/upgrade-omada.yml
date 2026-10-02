@@ -91,7 +91,7 @@
     - name: Wait for controller to initialize
       ansible.builtin.uri:
         url: "https://localhost:8043"
-        validate_certs: false
+        validate_certs: "{{ site_verify_omada | default(false) }}"
         status_code: [200, 302]
       register: health
       retries: 12

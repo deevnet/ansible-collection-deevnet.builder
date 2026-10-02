@@ -49,7 +49,7 @@
     - name: Discover the controller id
       ansible.builtin.uri:
         url: "{{ omada_user_url }}/api/info"
-        validate_certs: false
+        validate_certs: "{{ site_verify_omada | default(false) }}"
       register: omada_user_info
 
     - name: Log in as the Owner
@@ -60,7 +60,7 @@
         body:
           username: "{{ vault_omada_owner_user }}"
           password: "{{ vault_omada_owner_password }}"
-        validate_certs: false
+        validate_certs: "{{ site_verify_omada | default(false) }}"
       register: omada_user_login
       no_log: true
 
@@ -76,14 +76,14 @@
       ansible.builtin.uri:
         url: "{{ omada_user_api }}/sites?currentPageSize=100&currentPage=1"
         headers: "{{ omada_user_hdr }}"
-        validate_certs: false
+        validate_certs: "{{ site_verify_omada | default(false) }}"
       register: omada_user_sites
 
     - name: List existing accounts
       ansible.builtin.uri:
         url: "{{ omada_user_api }}/users"
         headers: "{{ omada_user_hdr }}"
-        validate_certs: false
+        validate_certs: "{{ site_verify_omada | default(false) }}"
       register: omada_user_existing
 
     # DELETE needs an explicit empty JSON body. Without one the controller
@@ -95,7 +95,7 @@
         body_format: json
         body: {}
         headers: "{{ omada_user_hdr }}"
-        validate_certs: false
+        validate_certs: "{{ site_verify_omada | default(false) }}"
       loop: >-
         {{ omada_user_existing.json.result.data
            | selectattr('name', 'equalto', omada_user_name) | list }}
@@ -123,7 +123,7 @@
                 name: "{{ omada_user_sites.json.result.data[0].name }}"
                 category: advanced
         headers: "{{ omada_user_hdr }}"
-        validate_certs: false
+        validate_certs: "{{ site_verify_omada | default(false) }}"
       register: omada_user_create
       no_log: true
 
@@ -144,7 +144,7 @@
         method: POST
         body_format: json
         body: { username: "{{ omada_user_name }}", password: "{{ omada_user_pw }}" }
-        validate_certs: false
+        validate_certs: "{{ site_verify_omada | default(false) }}"
       register: omada_user_verify
       no_log: true
 
@@ -154,7 +154,7 @@
         headers:
           Csrf-Token: "{{ omada_user_verify.json.result.token }}"
           Cookie: "TPOMADA_SESSIONID={{ omada_user_verify.cookies.TPOMADA_SESSIONID | default('') }}"
-        validate_certs: false
+        validate_certs: "{{ site_verify_omada | default(false) }}"
       register: omada_user_check
       failed_when: false
 
