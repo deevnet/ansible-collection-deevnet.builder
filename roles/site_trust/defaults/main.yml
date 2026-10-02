@@ -11,3 +11,9 @@ site_trust_anchor:
 site_trust_update:
   RedHat: [update-ca-trust, extract]
   Debian: [update-ca-certificates]
+# The bundle each OS builds from its anchors, which TLS clients read. Fedora 44
+# no longer has the old /etc/pki/tls/certs/ca-bundle.crt link; this path is on
+# both 43 and 44.
+site_trust_bundle:
+  RedHat: /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem
+  Debian: /etc/ssl/certs/ca-certificates.crt

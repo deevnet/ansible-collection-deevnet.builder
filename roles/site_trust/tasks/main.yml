@@ -29,9 +29,13 @@
   become: true
   changed_when: true
 
+# Checked in the bundle the OS built, not with openssl: a minimal install has
+# no openssl CLI (dv02bld002v01 did not, at CHG-0031). A line of the root's
+# base64 is in the bundle only if the rebuild took it.
 - name: Check the store now trusts the site root
   ansible.builtin.command:
-    argv: [openssl, verify, "{{ site_trust_anchor[ansible_facts.os_family] }}"]
+    argv: [grep, -qF, "{{ lookup('file', site_trust_root_local).splitlines()[1] }}",
+           "{{ site_trust_bundle[ansible_facts.os_family] }}"]
   changed_when: false
   check_mode: false
   become: true
