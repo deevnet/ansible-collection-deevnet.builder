@@ -1,0 +1,91 @@
+---
+- name: Read the node's custom certificate
+  ansible.builtin.slurp:
+    src: "{{ proxmox_node_cert_file }}"
+  register: _pnc_current
+  failed_when: false
+  become: true
+
+# Reissue when there is none, when it is due, when it no longer chains to the
+# site root, or when the names it carries differ from the inventory's - a new
+# CNAME reaches the certificate on the next run.
+- name: Check the node's certificate on the control node
+  ansible.builtin.shell:
+    cmd: |
+      f=$(mktemp); trap 'rm -f "$f"' EXIT; cat > "$f"
+      openssl x509 -in "$f" -noout -checkend {{ proxmox_node_cert_renew_before }} >/dev/null || { echo due; exit 0; }
+      openssl verify -CAfile {{ proxmox_node_cert_root | quote }} -untrusted "$f" "$f" >/dev/null 2>&1 || { echo unchained; exit 0; }
+      openssl x509 -in "$f" -noout -ext subjectAltName | tail -n +2 | tr -d ' ' | tr ',' '\n' | LC_ALL=C sort | tr '\n' ' '
+    stdin: "{{ (_pnc_current.content | default('') | b64decode) if _pnc_current.content is defined else '' }}"
+  register: _pnc_check
+  when: _pnc_current.content is defined
+  delegate_to: localhost
+  become: false
+  changed_when: false
+  check_mode: false
+
+- name: Decide whether to issue
+  ansible.builtin.set_fact:
+    _pnc_wanted: >-
+      {{ _pnc_current.content is not defined
+         or _pnc_check.stdout | trim in ['due', 'unchained']
+         or (_pnc_check.stdout | trim) != ((site_cert_dns_names | map('regex_replace', '^', 'DNS:') | list
+              + site_cert_ip_sans | map('regex_replace', '^', 'IPAddress:') | list) | sort | join(' ')) }}
+
+- name: Install a site certificate
+  when: _pnc_wanted | bool
+  block:
+    - name: Issue the certificate
+      ansible.builtin.include_role:
+        name: site_bootstrap_cert
+
+    - name: Make a private scratch directory on the node
+      ansible.builtin.tempfile:
+        state: directory
+      register: _pnc_tmp
+      become: true
+
+    - name: Put the chain and key there
+      ansible.builtin.copy:
+        dest: "{{ _pnc_tmp.path }}/{{ item.name }}"
+        content: "{{ item.content }}\n"
+        mode: "0600"
+        owner: root
+        group: root
+      loop:
+        - { name: chain.pem, content: "{{ site_bootstrap_cert_result.chain }}" }
+        - { name: key.pem, content: "{{ site_bootstrap_cert_result.private_key }}" }
+      loop_control:
+        label: "{{ item.name }}"
+      become: true
+      no_log: true
+
+    # --force: replace an earlier custom certificate. --restart: pveproxy only
+    # serves the new one after a restart.
+    - name: Install it with pvenode
+      ansible.builtin.command:
+        argv: [pvenode, cert, set, "{{ _pnc_tmp.path }}/chain.pem", "{{ _pnc_tmp.path }}/key.pem",
+               --force, "1", --restart, "1"]
+      become: true
+      changed_when: true
+
+  always:
+    - name: Remove the scratch directory
+      ansible.builtin.file:
+        path: "{{ _pnc_tmp.path }}"
+        state: absent
+      when: _pnc_tmp.path is defined
+      become: true
+
+- name: Wait for a verified handshake on the web UI
+  ansible.builtin.command:
+    argv: [curl, -fsS, -o, /dev/null, --max-time, "8", --cacert, "{{ proxmox_node_cert_root }}",
+           "https://{{ site_cert_ip_sans | first }}:{{ proxmox_node_cert_port }}/"]
+  register: _pnc_handshake
+  retries: 15
+  delay: 4
+  until: _pnc_handshake.rc == 0
+  delegate_to: localhost
+  become: false
+  changed_when: false
+  check_mode: false

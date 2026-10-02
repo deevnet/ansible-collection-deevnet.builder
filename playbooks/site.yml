@@ -38,6 +38,10 @@
   roles:
     - proxmox_node_base
     - site_trust
+    # The web UI and API on a site certificate from the bootstrap intermediate
+    # (ADR-0030 §3), so clients verify instead of skipping it.
+    - role: proxmox_node_cert
+      tags: [certs]
     # Data-disk volume groups, thin pools and PVE storage entries, from
     # proxmox_node_storage in host_vars. Skips nodes that declare none.
     - proxmox_node_storage

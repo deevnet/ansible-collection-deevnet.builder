@@ -1,0 +1,83 @@
+---
+- name: Fail early without the bootstrap intermediate
+  ansible.builtin.assert:
+    that:
+      - site_bootstrap_cert_ca_file is file
+      - site_bootstrap_cert_ca_key | length > 0
+      - site_bootstrap_cert_dns_names | length > 0
+    fail_msg: >-
+      The bootstrap intermediate's certificate ({{ site_bootstrap_cert_ca_file }}) and
+      key (vault_site_bootstrap_ca_key) come from deevnet.mgmt playbooks/site-root-ca.yml,
+      and the names from site_cert_dns_names in the inventory.
+    quiet: true
+  delegate_to: localhost
+  become: false
+
+- name: Generate the key
+  community.crypto.openssl_privatekey_pipe:
+    type: RSA
+    size: "{{ site_bootstrap_cert_key_size }}"
+  register: _sbc_key
+  delegate_to: localhost
+  become: false
+  no_log: true
+
+# ownca copies the request's extensions, which is why they are all set here:
+# serverAuth is what OPNsense's GUI page insists on.
+- name: Make the request
+  community.crypto.openssl_csr_pipe:
+    privatekey_content: "{{ _sbc_key.privatekey }}"
+    common_name: "{{ site_bootstrap_cert_common_name }}"
+    subject_alt_name: >-
+      {{ site_bootstrap_cert_dns_names | map('regex_replace', '^', 'DNS:') | list
+         + site_bootstrap_cert_ips | map('regex_replace', '^', 'IP:') | list }}
+    basic_constraints: ["CA:FALSE"]
+    basic_constraints_critical: true
+    key_usage: [digitalSignature, keyEncipherment]
+    key_usage_critical: true
+    extended_key_usage: [serverAuth]
+    create_subject_key_identifier: true
+  register: _sbc_csr
+  delegate_to: localhost
+  become: false
+  no_log: true
+
+- name: Sign it with the bootstrap intermediate
+  community.crypto.x509_certificate_pipe:
+    provider: ownca
+    csr_content: "{{ _sbc_csr.csr }}"
+    ownca_content: "{{ lookup('file', site_bootstrap_cert_ca_file) }}"
+    ownca_privatekey_content: "{{ site_bootstrap_cert_ca_key }}"
+    ownca_not_after: "+{{ site_bootstrap_cert_days }}d"
+  register: _sbc_cert
+  delegate_to: localhost
+  become: false
+  no_log: true
+
+- name: Keep the result
+  ansible.builtin.set_fact:
+    site_bootstrap_cert_result:
+      certificate: "{{ _sbc_cert.certificate | trim }}"
+      chain: "{{ (_sbc_cert.certificate | trim) ~ '\n' ~ (lookup('file', site_bootstrap_cert_ca_file) | trim) }}"
+      private_key: "{{ _sbc_key.privatekey | trim }}"
+  no_log: true
+
+- name: Make a scratch file for the chain check
+  ansible.builtin.tempfile:
+    suffix: .pem
+  register: _sbc_scratch
+  delegate_to: localhost
+  become: false
+  changed_when: false
+
+- name: Check the certificate chains to the site root
+  ansible.builtin.shell:
+    cmd: >-
+      cat > {{ _sbc_scratch.path | quote }} &&
+      openssl verify -CAfile {{ site_bootstrap_cert_root_file | quote }}
+      -untrusted {{ _sbc_scratch.path | quote }} -purpose sslserver {{ _sbc_scratch.path | quote }};
+      rc=$?; rm -f {{ _sbc_scratch.path | quote }}; exit $rc
+    stdin: "{{ site_bootstrap_cert_result.chain }}"
+  delegate_to: localhost
+  become: false
+  changed_when: false

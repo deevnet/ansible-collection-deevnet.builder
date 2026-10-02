@@ -1,0 +1,13 @@
+---
+# The node's pveproxy certificate, from the bootstrap intermediate (ADR-0030
+# §3): the hypervisors come up before OpenBao, which runs on one of them.
+#
+# Installed with `pvenode cert set` (pvenode(1)): it writes
+# /etc/pve/local/pveproxy-ssl.{pem,key}, refuses a key that does not match,
+# and never touches the node's own pve-ssl.pem, so `pvenode cert delete 1`
+# goes straight back to it.
+proxmox_node_cert_file: /etc/pve/local/pveproxy-ssl.pem
+proxmox_node_cert_port: 8006
+# Reissue with fewer than 60 days left (ADR-0030 §5).
+proxmox_node_cert_renew_before: 5184000
+proxmox_node_cert_root: "{{ site_root_ca_file }}"
