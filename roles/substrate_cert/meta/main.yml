@@ -1,0 +1,7 @@
+---
+galaxy_info:
+  role_name: substrate_cert
+  description: Sign a substrate server certificate with the site's Substrate CA, on the control node
+  license: MIT
+  min_ansible_version: "2.14"
+dependencies: []

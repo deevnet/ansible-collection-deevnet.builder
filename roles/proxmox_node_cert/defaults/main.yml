@@ -1,6 +1,7 @@
 ---
-# The node's pveproxy certificate, from the bootstrap intermediate (ADR-0030
-# §3): the hypervisors come up before OpenBao, which runs on one of them.
+# The node's pveproxy certificate, from the site's Substrate CA on the control
+# node (ADR-0031 §4): the hypervisors come up before OpenBao, which runs on one
+# of them, and no substrate certificate depends on OpenBao.
 #
 # Installed with `pvenode cert set` (pvenode(1)): it writes
 # /etc/pve/local/pveproxy-ssl.{pem,key}, refuses a key that does not match,

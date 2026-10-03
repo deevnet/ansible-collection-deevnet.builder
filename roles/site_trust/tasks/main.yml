@@ -10,32 +10,46 @@
     fail_msg: "site_trust knows {{ site_trust_anchor.keys() | list }}, not {{ ansible_facts.os_family }}"
     quiet: true
 
-- name: Install the site root as a trust anchor
+- name: Install each root as a trust anchor
   ansible.builtin.copy:
-    src: "{{ site_trust_root_local }}"
-    dest: "{{ site_trust_anchor[ansible_facts.os_family] }}"
+    src: "{{ item }}"
+    dest: >-
+      {{ site_trust_anchor[ansible_facts.os_family].dir }}/{{ item | basename | regex_replace('[.]pem$', '') }}{{
+         site_trust_anchor[ansible_facts.os_family].ext }}
     owner: root
     group: root
     mode: "0644"
+  loop: "{{ site_trust_roots }}"
   become: true
   register: site_trust_anchor_file
+
+- name: Remove retired anchors
+  ansible.builtin.file:
+    path: >-
+      {{ site_trust_anchor[ansible_facts.os_family].dir }}/{{ item | regex_replace('[.]pem$', '') }}{{
+         site_trust_anchor[ansible_facts.os_family].ext }}
+    state: absent
+  loop: "{{ site_trust_retired }}"
+  become: true
+  register: site_trust_retired_file
 
 # Run now rather than from a handler: a later task in the same play may dial a
 # service whose certificate chains to this root.
 - name: Rebuild the trust store
   ansible.builtin.command:
     argv: "{{ site_trust_update[ansible_facts.os_family] }}"
-  when: site_trust_anchor_file is changed
+  when: site_trust_anchor_file is changed or site_trust_retired_file is changed
   become: true
   changed_when: true
 
 # Checked in the bundle the OS built, not with openssl: a minimal install has
 # no openssl CLI (dv02bld002v01 did not, at CHG-0031). A line of the root's
 # base64 is in the bundle only if the rebuild took it.
-- name: Check the store now trusts the site root
+- name: Check the store now trusts each root
   ansible.builtin.command:
-    argv: [grep, -qF, "{{ lookup('file', site_trust_root_local).splitlines()[1] }}",
+    argv: [grep, -qF, "{{ lookup('file', item).splitlines()[1] }}",
            "{{ site_trust_bundle[ansible_facts.os_family] }}"]
+  loop: "{{ site_trust_roots }}"
   changed_when: false
   check_mode: false
   become: true

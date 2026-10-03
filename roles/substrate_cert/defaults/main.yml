@@ -1,0 +1,27 @@
+---
+# A substrate server certificate, signed on the CONTROL NODE by the site's
+# Substrate CA (ADR-0031 §3-§5). Every substrate certificate comes from here:
+# the hypervisors, the core router, the service VMs and their services,
+# OpenBao's own listener. Nothing here touches the target: the caller installs
+# the result its own product's way.
+#
+# Sets substrate_cert_result: {certificate, chain, private_key}, where chain is
+# the leaf, the Substrate CA and the Site CA (never the root: clients hold it).
+
+substrate_cert_common_name: "{{ site_cert_dns_names | first }}"
+substrate_cert_dns_names: "{{ site_cert_dns_names }}"
+substrate_cert_ips: "{{ site_cert_ip_sans }}"
+
+# Subject: O, OU, CN in that order (Certificates standard §2).
+substrate_cert_organization: Deevnet
+substrate_cert_organizational_unit: "{{ substrate | capitalize }} Substrate"
+
+# One year, reissued under 60 days by the callers (standard §4). RSA 2048: what
+# older device TLS stacks and the vendors' own guides expect.
+substrate_cert_days: 365
+substrate_cert_key_size: 2048
+
+substrate_cert_ca_file: "{{ site_substrate_ca_file }}"
+substrate_cert_ca_key: "{{ vault_site_substrate_ca_key | default('') }}"
+substrate_cert_site_ca_file: "{{ site_ca_file }}"
+substrate_cert_root_file: "{{ site_root_ca_file }}"

@@ -1,7 +1,0 @@
----
-galaxy_info:
-  role_name: site_bootstrap_cert
-  description: Sign a server certificate with the site's bootstrap intermediate, on the control node
-  license: MIT
-  min_ansible_version: "2.14"
-dependencies: []
