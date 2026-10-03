@@ -1,0 +1,91 @@
+---
+- name: Fail early without the Substrate CA
+  ansible.builtin.assert:
+    that:
+      - substrate_cert_ca_file is file
+      - substrate_cert_site_ca_file is file
+      - substrate_cert_root_file is file
+      - substrate_cert_ca_key | length > 0
+      - substrate_cert_dns_names | length > 0
+    fail_msg: >-
+      The Substrate CA's certificate ({{ substrate_cert_ca_file }}) comes from the Issuing CA
+      ceremony, its key (vault_site_substrate_ca_key) from deevnet.mgmt playbooks/substrate-ca.yml;
+      the Site CA ({{ substrate_cert_site_ca_file }}) and root ({{ substrate_cert_root_file }}) from
+      the Root of Trust runbook; the names from site_cert_dns_names in the inventory.
+    quiet: true
+  delegate_to: localhost
+  become: false
+
+- name: Generate the key
+  community.crypto.openssl_privatekey_pipe:
+    type: RSA
+    size: "{{ substrate_cert_key_size }}"
+  register: _sc_key
+  delegate_to: localhost
+  become: false
+  no_log: true
+
+# ownca copies the request's extensions, so the request carries exactly the
+# server profile (standard §4): serverAuth only, never clientAuth.
+- name: Make the request
+  community.crypto.openssl_csr_pipe:
+    privatekey_content: "{{ _sc_key.privatekey }}"
+    subject_ordered:
+      - O: "{{ substrate_cert_organization }}"
+      - OU: "{{ substrate_cert_organizational_unit }}"
+      - CN: "{{ substrate_cert_common_name }}"
+    subject_alt_name: >-
+      {{ substrate_cert_dns_names | map('regex_replace', '^', 'DNS:') | list
+         + substrate_cert_ips | map('regex_replace', '^', 'IP:') | list }}
+    basic_constraints: ["CA:FALSE"]
+    basic_constraints_critical: true
+    key_usage: [digitalSignature, keyEncipherment]
+    key_usage_critical: true
+    extended_key_usage: [serverAuth]
+    create_subject_key_identifier: true
+  register: _sc_csr
+  delegate_to: localhost
+  become: false
+  no_log: true
+
+- name: Sign it with the Substrate CA
+  community.crypto.x509_certificate_pipe:
+    provider: ownca
+    csr_content: "{{ _sc_csr.csr }}"
+    ownca_content: "{{ lookup('file', substrate_cert_ca_file) }}"
+    ownca_privatekey_content: "{{ substrate_cert_ca_key }}"
+    ownca_not_after: "+{{ substrate_cert_days }}d"
+    ownca_digest: sha256
+  register: _sc_cert
+  delegate_to: localhost
+  become: false
+  no_log: true
+
+- name: Keep the result
+  ansible.builtin.set_fact:
+    substrate_cert_result:
+      certificate: "{{ _sc_cert.certificate | trim }}"
+      # Double-quoted on one line: in a folded scalar the '\n' stays literal.
+      chain: "{{ [_sc_cert.certificate | trim, lookup('file', substrate_cert_ca_file) | trim, lookup('file', substrate_cert_site_ca_file) | trim] | join('\n') }}"
+      private_key: "{{ _sc_key.privatekey | trim }}"
+  no_log: true
+
+- name: Make a scratch file for the chain check
+  ansible.builtin.tempfile:
+    suffix: .pem
+  register: _sc_scratch
+  delegate_to: localhost
+  become: false
+  changed_when: false
+
+- name: Check the certificate chains to the Deevnet Root CA
+  ansible.builtin.shell:
+    cmd: >-
+      cat > {{ _sc_scratch.path | quote }} &&
+      openssl verify -CAfile {{ substrate_cert_root_file | quote }}
+      -untrusted {{ _sc_scratch.path | quote }} -purpose sslserver {{ _sc_scratch.path | quote }};
+      rc=$?; rm -f {{ _sc_scratch.path | quote }}; exit $rc
+    stdin: "{{ substrate_cert_result.chain }}"
+  delegate_to: localhost
+  become: false
+  changed_when: false

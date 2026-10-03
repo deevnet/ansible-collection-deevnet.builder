@@ -7,7 +7,7 @@
   become: true
 
 # Reissue when there is none, when it is due, when it no longer chains to the
-# site root, or when the names it carries differ from the inventory's - a new
+# Deevnet Root CA, or when the names it carries differ from the inventory's - a new
 # CNAME reaches the certificate on the next run.
 - name: Check the node's certificate on the control node
   ansible.builtin.shell:
@@ -37,7 +37,7 @@
   block:
     - name: Issue the certificate
       ansible.builtin.include_role:
-        name: site_bootstrap_cert
+        name: substrate_cert
 
     - name: Make a private scratch directory on the node
       ansible.builtin.tempfile:
@@ -53,8 +53,8 @@
         owner: root
         group: root
       loop:
-        - { name: chain.pem, content: "{{ site_bootstrap_cert_result.chain }}" }
-        - { name: key.pem, content: "{{ site_bootstrap_cert_result.private_key }}" }
+        - { name: chain.pem, content: "{{ substrate_cert_result.chain }}" }
+        - { name: key.pem, content: "{{ substrate_cert_result.private_key }}" }
       loop_control:
         label: "{{ item.name }}"
       become: true
