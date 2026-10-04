@@ -14,7 +14,7 @@ substrate_cert_ips: "{{ site_cert_ip_sans }}"
 
 # Subject: O, OU, CN in that order (Certificates standard §2).
 substrate_cert_organization: Deevnet
-substrate_cert_organizational_unit: "{{ substrate | capitalize }} Substrate"
+substrate_cert_organizational_unit: "{{ deevnet_substrate | capitalize }} Substrate"
 
 # One year, reissued under 60 days by the callers (standard §4). RSA 2048: what
 # older device TLS stacks and the vendors' own guides expect.
