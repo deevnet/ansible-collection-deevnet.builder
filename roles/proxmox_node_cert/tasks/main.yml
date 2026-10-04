@@ -14,7 +14,7 @@
     cmd: |
       f=$(mktemp); trap 'rm -f "$f"' EXIT; cat > "$f"
       openssl x509 -in "$f" -noout -checkend {{ proxmox_node_cert_renew_before }} >/dev/null || { echo due; exit 0; }
-      openssl verify -CAfile {{ proxmox_node_cert_root | quote }} -untrusted "$f" "$f" >/dev/null 2>&1 || { echo unchained; exit 0; }
+      openssl verify -no-CApath -no-CAstore -CAfile {{ proxmox_node_cert_root | quote }} -untrusted "$f" "$f" >/dev/null 2>&1 || { echo unchained; exit 0; }
       openssl x509 -in "$f" -noout -ext subjectAltName | tail -n +2 | tr -d ' ' | tr ',' '\n' | LC_ALL=C sort | tr '\n' ' '
     stdin: "{{ (_pnc_current.content | default('') | b64decode) if _pnc_current.content is defined else '' }}"
   register: _pnc_check
