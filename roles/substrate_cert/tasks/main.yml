@@ -82,7 +82,7 @@
   ansible.builtin.shell:
     cmd: >-
       cat > {{ _sc_scratch.path | quote }} &&
-      openssl verify -CAfile {{ substrate_cert_root_file | quote }}
+      openssl verify -no-CApath -no-CAstore -CAfile {{ substrate_cert_root_file | quote }}
       -untrusted {{ _sc_scratch.path | quote }} -purpose sslserver {{ _sc_scratch.path | quote }};
       rc=$?; rm -f {{ _sc_scratch.path | quote }}; exit $rc
     stdin: "{{ substrate_cert_result.chain }}"
