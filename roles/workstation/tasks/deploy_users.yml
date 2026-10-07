@@ -45,6 +45,7 @@
   become: true
 
 - name: Ensure dev users exist
+  no_log: true
   ansible.builtin.user:
     name: "{{ user.name }}"
     group: "{{ user.primary_group | default(user.name) }}"
@@ -52,6 +53,13 @@
     append: true
     shell: "{{ user.shell | default('/bin/bash') }}"
     create_home: true
+    # A password is for the console. Without one the account is locked, SSH keys
+    # are the only way in, and when the network is what has failed there is no
+    # way in at all. Declared as a hash, from the vault, so a rebuilt host has
+    # it from its first boot; left out, the account stays as it is.
+    #   openssl passwd -6
+    password: "{{ user.password_hash | default(omit, true) }}"
+    update_password: always
     state: present
   loop: "{{ dev_users | default([]) }}"
   loop_control:
