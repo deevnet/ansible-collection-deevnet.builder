@@ -44,7 +44,7 @@ The `bootstrap` role sets up a PXE network boot server using dnsmasq:
 - Opens firewall ports (DHCP 67/udp, TFTP 69/udp, optionally DNS)
 
 ### Variable Conventions
-- `dev_users: []` - List of users for workstation role (define in host_vars/group_vars)
+- `dev_users: []` - List of users for workstation role (define in host_vars/group_vars). A user the role creates starts with its own name as its password (`initial_password` overrides), expired so the first login changes it; existing accounts are never touched
 - `artifacts_to_fetch: []` - List of artifacts to download (define in host_vars/group_vars)
 - `artifacts_podman_images: []` - List of container images to download (requires fully-qualified names like `docker.io/user/repo:tag`)
 - `omada_*` - Omada controller configuration (container image, ports, volumes, env vars)

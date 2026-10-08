@@ -44,8 +44,12 @@
     loop_var: user
   become: true
 
+# Which accounts already exist decides who gets a starting password below.
+- name: Read the existing accounts
+  ansible.builtin.getent:
+    database: passwd
+
 - name: Ensure dev users exist
-  no_log: true
   ansible.builtin.user:
     name: "{{ user.name }}"
     group: "{{ user.primary_group | default(user.name) }}"
@@ -53,17 +57,39 @@
     append: true
     shell: "{{ user.shell | default('/bin/bash') }}"
     create_home: true
-    # A password is for the console. Without one the account is locked, SSH keys
-    # are the only way in, and when the network is what has failed there is no
-    # way in at all. Declared as a hash, from the vault, so a rebuilt host has
-    # it from its first boot; left out, the account stays as it is.
-    #   openssl passwd -6
-    password: "{{ user.password_hash | default(omit, true) }}"
-    update_password: always
     state: present
   loop: "{{ dev_users | default([]) }}"
   loop_control:
     loop_var: user
+  become: true
+
+# A password is for the console. Without one the account is locked, SSH keys
+# are the only way in, and when the network is what has failed there is no
+# way in at all. So an account this role creates starts with a known password
+# (its own user name unless initial_password says otherwise) that is already
+# expired: the first login, console or SSH, must replace it. An account that
+# already exists is never touched, so the password its owner chose survives
+# every later run.
+- name: Give new dev users a starting password
+  no_log: true
+  ansible.builtin.command:
+    cmd: chpasswd
+    stdin: "{{ user.name }}:{{ user.initial_password | default(user.name) }}"
+  when: user.name not in getent_passwd
+  loop: "{{ dev_users | default([]) }}"
+  loop_control:
+    loop_var: user
+    label: "{{ user.name }}"
+  become: true
+
+- name: Expire the starting password so the first login changes it
+  ansible.builtin.command:
+    cmd: "chage -d 0 {{ user.name }}"
+  when: user.name not in getent_passwd
+  loop: "{{ dev_users | default([]) }}"
+  loop_control:
+    loop_var: user
+    label: "{{ user.name }}"
   become: true
 
 - name: Ensure .ssh directory exists for dev users
