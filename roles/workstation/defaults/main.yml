@@ -1,5 +1,7 @@
 ---
 # Sample dev user — host_vars or group_vars should define dev_users.
+# A user the role creates starts with its own name as its password, expired so
+# the first login must change it; initial_password overrides the starting value.
 
 dev_users:
   - name: devuser
@@ -41,6 +43,7 @@ dev_tool_packages:
   - tmux
   - golang
   - nmap-ncat
+  - whois
   - sshpass
   # jq and yq are how vault contents and terraform/API JSON get read on the
   # command line, which is most of what operating this estate looks like:
