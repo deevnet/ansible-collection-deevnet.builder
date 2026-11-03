@@ -27,3 +27,5 @@ description: >
   Ansible, Packer, Terraform, nginx, and TFTP.
 dependencies:
   ansible.posix: ">=1.5.0"
+  # npm, in the workstation role. Below 11, as in collections/requirements.yml.
+  community.general: ">=8.0.0,<11.0.0"
