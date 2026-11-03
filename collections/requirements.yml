@@ -2,3 +2,7 @@
 collections:
   - name: ansible.posix
     version: ">=1.5.0"
+  # npm, in the workstation role. Below 11, which moved the proxmox modules
+  # to community.proxmox, as deevnet.mgmt's requirements are.
+  - name: community.general
+    version: ">=8.0.0,<11.0.0"
