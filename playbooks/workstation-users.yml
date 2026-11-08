@@ -1,0 +1,17 @@
+---
+# Only the workstation role's users: accounts, groups, the /srv/dvnt ACLs, and
+# each dev user's authorized_keys from their github_keys_url. For putting a
+# user's keys back without the role's package installs.
+#
+#   ansible-playbook playbooks/workstation-users.yml --limit dv00bld001p01 -c local --ask-vault-pass
+#
+# -c local on the Builder itself: it works when the SSH key being restored is
+# the one the connection would have used.
+- name: Workstation users
+  hosts: workstations
+  become: true
+  tasks:
+    - name: Deploy users
+      ansible.builtin.include_role:
+        name: workstation
+        tasks_from: deploy_users
