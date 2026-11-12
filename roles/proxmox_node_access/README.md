@@ -15,7 +15,10 @@ disk, so a reinstall loses them, and before this role they were made by hand and
 | API token | nothing | **Fails the run**, with the manual step | not compared |
 | ACL entry | nothing | `pveum acl modify <path> --roles <role> --users\|--tokens <id>` | — |
 
-It never removes anything. Roles, users and ACL entries that are not declared are left alone.
+It removes only what is declared absent (`acls_absent`, `users_absent`, `roles_absent`), with
+`pveum acl delete`, `pveum user delete` or `pveum role delete`, and only after the grants, so a role that replaces another
+is in place before the old one goes. Roles, users and ACL entries that are merely not declared are
+left alone. Deleting a user deletes its tokens and ACL entries too.
 
 ## Why tokens are not created
 
@@ -39,6 +42,14 @@ proxmox_node_access:
       role: DeevnetTenantBuilder
       users: [deevnet-api@pve]
       tokens: [deevnet-api@pve!tenants]
+  # Removed if present, after the grants above
+  acls_absent:
+    - path: /
+      role: Administrator
+      users: [terraform-prov@pve]
+      tokens: [terraform-prov@pve!tf-prov-token]
+  users_absent: [packer-prov@pve]
+  roles_absent: [TerraformProv]
 ```
 
 ## Running it

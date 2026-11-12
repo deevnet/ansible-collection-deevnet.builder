@@ -13,4 +13,12 @@
 #       role: DeevnetTenantBuilder
 #       users: [deevnet-api@pve]
 #       tokens: [deevnet-api@pve!tenants]
+#   # Removed if present, after the grants above. Never inferred.
+#   acls_absent:
+#     - path: /
+#       role: Administrator
+#       users: [terraform-prov@pve]
+#       tokens: [terraform-prov@pve!tf-prov-token]
+#   users_absent: [packer-prov@pve]
+#   roles_absent: [TerraformProv]
 proxmox_node_access: {}
