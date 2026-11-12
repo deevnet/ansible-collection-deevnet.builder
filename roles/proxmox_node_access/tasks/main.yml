@@ -1,8 +1,9 @@
 ---
-# Reconciles toward the declaration without ever removing anything: missing
-# roles, users and ACL entries are created, a role whose privileges differ is
-# brought to the declared set, and a missing API token fails the run - its
-# secret is shown once, so creating it here would print it into Ansible output.
+# Reconciles toward the declaration: missing roles, users and ACL entries are
+# created, a role whose privileges differ is brought to the declared set, and a
+# missing API token fails the run - its secret is shown once, so creating it
+# here would print it into Ansible output. It removes only what is declared
+# absent, never what is merely undeclared.
 
 - name: Skip nodes that declare no access
   ansible.builtin.meta: end_host
@@ -112,4 +113,40 @@
   loop_control:
     label: "{{ item.0.path }} {{ item.1 }} {{ item.0.role }}"
   when: (item.0.path ~ '|token|' ~ item.1 ~ '|' ~ item.0.role) not in _pna_acl_keys
+  become: true
+
+# Removals, declared as such (`acls_absent`, `users_absent`, `roles_absent`).
+# They run after the grants, so a role that replaces another is in place
+# before the old one goes (CHG-0037). Nothing undeclared is ever removed.
+- name: Remove ACL entries declared absent, from users
+  ansible.builtin.command:
+    argv: [pveum, acl, delete, "{{ item.0.path }}", --roles, "{{ item.0.role }}", --users, "{{ item.1 }}"]
+  loop: "{{ proxmox_node_access.acls_absent | default([]) | subelements('users', skip_missing=True) }}"
+  loop_control:
+    label: "{{ item.0.path }} {{ item.1 }} {{ item.0.role }}"
+  when: (item.0.path ~ '|user|' ~ item.1 ~ '|' ~ item.0.role) in _pna_acl_keys
+  become: true
+
+- name: Remove ACL entries declared absent, from tokens
+  ansible.builtin.command:
+    argv: [pveum, acl, delete, "{{ item.0.path }}", --roles, "{{ item.0.role }}", --tokens, "{{ item.1 }}"]
+  loop: "{{ proxmox_node_access.acls_absent | default([]) | subelements('tokens', skip_missing=True) }}"
+  loop_control:
+    label: "{{ item.0.path }} {{ item.1 }} {{ item.0.role }}"
+  when: (item.0.path ~ '|token|' ~ item.1 ~ '|' ~ item.0.role) in _pna_acl_keys
+  become: true
+
+# Deleting a user deletes its tokens and its ACL entries with it.
+- name: Remove users declared absent
+  ansible.builtin.command:
+    argv: [pveum, user, delete, "{{ item }}"]
+  loop: "{{ proxmox_node_access.users_absent | default([]) }}"
+  when: item in _pna_user_ids
+  become: true
+
+- name: Remove roles declared absent
+  ansible.builtin.command:
+    argv: [pveum, role, delete, "{{ item }}"]
+  loop: "{{ proxmox_node_access.roles_absent | default([]) }}"
+  when: item in _pna_role_privs
   become: true
