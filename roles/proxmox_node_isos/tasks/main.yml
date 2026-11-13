@@ -1,0 +1,18 @@
+---
+# As root over SSH, not through the API: Proxmox's download-url needs
+# Sys.AccessNetwork on the node, which the automation token does not hold.
+# get_url checks an existing file's SHA-256 first and downloads nothing when it
+# matches.
+- name: Stage installer ISOs from the artifact server
+  ansible.builtin.get_url:
+    url: "{{ item }}"
+    dest: "{{ proxmox_node_iso_dir }}/{{ item | basename }}"
+    checksum: "sha256:{{ item }}.sha256"
+    owner: root
+    group: root
+    mode: "0644"
+    timeout: 1800
+  loop: "{{ proxmox_node_isos }}"
+  loop_control:
+    label: "{{ item | basename }}"
+  become: true

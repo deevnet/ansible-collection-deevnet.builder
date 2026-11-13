@@ -1,0 +1,17 @@
+---
+# Installer ISOs a Proxmox node keeps in its ISO storage, for builds that boot
+# from them: Packer's Fedora template build reads local:iso/<file> (CHG-0037).
+#
+# Each is a URL on the artifact server, which publishes <url>.sha256 beside it.
+# A file is downloaded only when it is missing or its SHA-256 differs, and kept
+# only if it matches. Files not listed are left alone.
+#
+# Shape (the inventory's group_vars/hypervisors.yml derives it from the
+# releases the factory builds):
+#
+#   proxmox_node_isos:
+#     - http://artifacts.example/fedora/44/iso/Fedora-Server-dvd-x86_64-44-1.7.iso
+proxmox_node_isos: []
+
+# Where the node's `local` storage keeps ISO content.
+proxmox_node_iso_dir: /var/lib/vz/template/iso

@@ -94,3 +94,15 @@
         path: "/tmp/fedora_iso_{{ artifact_item.name }}"
         state: absent
       become: true
+
+# The ISO's SHA-256 beside it, in sha256sum's format, for whatever fetches it
+# from here: proxmox_node_isos stages the DVD ISO on the hypervisors and checks
+# it against this file. Written from the published file, which is only ever
+# published after Fedora's signed CHECKSUM verified it, so an ISO published
+# before this file existed gets one too.
+- name: Write the ISO's checksum file beside it
+  ansible.builtin.shell:
+    cmd: "sha256sum {{ artifact_item.dest_filename | quote }} > {{ (artifact_item.dest_filename ~ '.sha256') | quote }}"
+    chdir: "{{ nginx_artifacts_root }}/{{ artifact_item.dest_subdir }}"
+    creates: "{{ nginx_artifacts_root }}/{{ artifact_item.dest_subdir }}/{{ artifact_item.dest_filename }}.sha256"
+  become: true
