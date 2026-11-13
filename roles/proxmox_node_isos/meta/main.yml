@@ -1,0 +1,7 @@
+---
+galaxy_info:
+  role_name: proxmox_node_isos
+  description: Installer ISOs staged in a Proxmox node's ISO storage from the artifact server
+  license: MIT
+  min_ansible_version: "2.14"
+dependencies: []
