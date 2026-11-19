@@ -63,6 +63,12 @@ virtualization_packages:
   - libvirt-daemon-kvm
   - virt-install
   - virt-manager
+  # arm64 machines emulated on this x86 host (TCG): the take-home arm64 qcow2
+  # is proven here the way UTM's QEMU backend boots it, the `virt` machine with
+  # an arm64 UEFI firmware. Installing these lifts the qemu packages to the
+  # same version.
+  - qemu-system-aarch64-core
+  - edk2-aarch64
 
 # Hugo static site generator (extended version for SCSS/search support)
 # Get checksum from: https://github.com/gohugoio/hugo/releases/download/vX.X.X/hugo_X.X.X_checksums.txt
