@@ -40,6 +40,16 @@
       {{ (_pnn_matchers.stdout | from_json) | selectattr('name', 'equalto', 'default-matcher') | first | default({}) }}
   no_log: true
 
+# The changes below are commands, which check mode skips, so a dry run says
+# here what a real run would do. The address is never shown.
+- name: Say what this run changes
+  ansible.builtin.debug:
+    msg:
+      - "email target {{ proxmox_node_notify_target }}: {{ 'create' if _pnn_target | length == 0 else ('update' if ((_pnn_target.mailto | default([]) != [proxmox_node_notify_email]) or (_pnn_target['from-address'] | default('') != proxmox_node_notify_from) or (_pnn_target.disable | default(0) | int == 1)) else 'ok') }}"
+      - "rule {{ proxmox_node_notify_matcher }}: {{ 'create' if _pnn_matcher | length == 0 else ('update' if ((_pnn_matcher.target | default([]) != [proxmox_node_notify_target]) or (_pnn_matcher.disable | default(0) | int == 1)) else 'ok') }}"
+      - "built-in default-matcher: {{ 'disable' if (proxmox_node_notify_disable_builtin | bool and _pnn_builtin | length > 0 and _pnn_builtin.disable | default(0) | int != 1) else 'ok' }}"
+      - "sender: {{ proxmox_node_notify_from }}"
+
 - name: Create the email target
   ansible.builtin.command:
     argv:
