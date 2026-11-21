@@ -1,0 +1,19 @@
+---
+# Where a node's notifications go: backups, replication, package updates and
+# failed jobs. Proxmox's own default sends them to root@pam's email address, set
+# once by the installer; this role makes the address and the routing come from
+# inventory instead, the same on every node.
+#
+# The address is personal, so inventory keeps it in the vault. Empty means the
+# role stops on the node and says so.
+proxmox_node_notify_email: ""
+
+# The target and the rule this role owns. Proxmox's built-in ones
+# (mail-to-root, default-matcher) cannot be deleted; the built-in rule is
+# disabled so a notification is sent once.
+proxmox_node_notify_target: deevnet-operator
+proxmox_node_notify_matcher: deevnet-all
+proxmox_node_notify_disable_builtin: true
+
+# The sender, so mail says which node it came from.
+proxmox_node_notify_from: "root@{{ proxmox_node }}.{{ deevnet_substrate }}.{{ deevnet_root_domain }}"

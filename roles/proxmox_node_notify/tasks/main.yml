@@ -1,0 +1,136 @@
+---
+# Reconciles one email target and one rule, both named by this role, and
+# disables Proxmox's built-in rule. The notification configuration is
+# cluster-wide (/etc/pve/notifications.cfg), so on a node in a cluster this
+# converges the cluster's; every Deevnet node is its own cluster.
+
+- name: Require an address
+  ansible.builtin.assert:
+    that:
+      - proxmox_node_notify_email | length > 0
+    fail_msg: >-
+      proxmox_node_notify_email is empty. Set vault_proxmox_notify_email in the
+      site's vault (see vault.example.yml); the address is personal, so it is
+      never in plain inventory.
+    quiet: true
+
+- name: Read email targets
+  ansible.builtin.command:
+    argv: [pvesh, get, /cluster/notifications/endpoints/sendmail, --output-format, json]
+  register: _pnn_targets
+  changed_when: false
+  check_mode: false
+  become: true
+
+- name: Read rules
+  ansible.builtin.command:
+    argv: [pvesh, get, /cluster/notifications/matchers, --output-format, json]
+  register: _pnn_matchers
+  changed_when: false
+  check_mode: false
+  become: true
+
+- name: Index what the node has
+  ansible.builtin.set_fact:
+    _pnn_target: >-
+      {{ (_pnn_targets.stdout | from_json) | selectattr('name', 'equalto', proxmox_node_notify_target) | first | default({}) }}
+    _pnn_matcher: >-
+      {{ (_pnn_matchers.stdout | from_json) | selectattr('name', 'equalto', proxmox_node_notify_matcher) | first | default({}) }}
+    _pnn_builtin: >-
+      {{ (_pnn_matchers.stdout | from_json) | selectattr('name', 'equalto', 'default-matcher') | first | default({}) }}
+  no_log: true
+
+# The changes below are commands, which check mode skips, so a dry run says
+# here what a real run would do. The address is never shown.
+- name: Say what this run changes
+  ansible.builtin.debug:
+    msg:
+      - "email target {{ proxmox_node_notify_target }}: {{ 'create' if _pnn_target | length == 0 else ('update' if ((_pnn_target.mailto | default([]) != [proxmox_node_notify_email]) or (_pnn_target['from-address'] | default('') != proxmox_node_notify_from) or (_pnn_target.disable | default(0) | int == 1)) else 'ok') }}"
+      - "rule {{ proxmox_node_notify_matcher }}: {{ 'create' if _pnn_matcher | length == 0 else ('update' if ((_pnn_matcher.target | default([]) != [proxmox_node_notify_target]) or (_pnn_matcher.disable | default(0) | int == 1)) else 'ok') }}"
+      - "built-in default-matcher: {{ 'disable' if (proxmox_node_notify_disable_builtin | bool and _pnn_builtin | length > 0 and _pnn_builtin.disable | default(0) | int != 1) else 'ok' }}"
+      - "sender: {{ proxmox_node_notify_from }}"
+
+- name: Create the email target
+  ansible.builtin.command:
+    argv:
+      - pvesh
+      - create
+      - /cluster/notifications/endpoints/sendmail
+      - --name
+      - "{{ proxmox_node_notify_target }}"
+      - --mailto
+      - "{{ proxmox_node_notify_email }}"
+      - --from-address
+      - "{{ proxmox_node_notify_from }}"
+      - --comment
+      - Managed by deevnet.builder proxmox_node_notify
+  when: _pnn_target | length == 0
+  changed_when: true
+  no_log: true
+  become: true
+
+- name: Bring the email target to the declared address and sender
+  ansible.builtin.command:
+    argv:
+      - pvesh
+      - set
+      - "/cluster/notifications/endpoints/sendmail/{{ proxmox_node_notify_target }}"
+      - --mailto
+      - "{{ proxmox_node_notify_email }}"
+      - --from-address
+      - "{{ proxmox_node_notify_from }}"
+      - --disable
+      - "0"
+  when:
+    - _pnn_target | length > 0
+    - (_pnn_target.mailto | default([]) != [proxmox_node_notify_email])
+      or (_pnn_target['from-address'] | default('') != proxmox_node_notify_from)
+      or (_pnn_target.disable | default(0) | int == 1)
+  changed_when: true
+  no_log: true
+  become: true
+
+- name: Create the rule that sends everything to it
+  ansible.builtin.command:
+    argv:
+      - pvesh
+      - create
+      - /cluster/notifications/matchers
+      - --name
+      - "{{ proxmox_node_notify_matcher }}"
+      - --target
+      - "{{ proxmox_node_notify_target }}"
+      - --mode
+      - all
+      - --comment
+      - Managed by deevnet.builder proxmox_node_notify
+  when: _pnn_matcher | length == 0
+  changed_when: true
+  become: true
+
+- name: Bring the rule to its declared target
+  ansible.builtin.command:
+    argv:
+      - pvesh
+      - set
+      - "/cluster/notifications/matchers/{{ proxmox_node_notify_matcher }}"
+      - --target
+      - "{{ proxmox_node_notify_target }}"
+      - --disable
+      - "0"
+  when:
+    - _pnn_matcher | length > 0
+    - (_pnn_matcher.target | default([]) != [proxmox_node_notify_target])
+      or (_pnn_matcher.disable | default(0) | int == 1)
+  changed_when: true
+  become: true
+
+- name: Disable the built-in rule, so a notification is sent once
+  ansible.builtin.command:
+    argv: [pvesh, set, /cluster/notifications/matchers/default-matcher, --disable, "1"]
+  when:
+    - proxmox_node_notify_disable_builtin | bool
+    - _pnn_builtin | length > 0
+    - _pnn_builtin.disable | default(0) | int != 1
+  changed_when: true
+  become: true
