@@ -53,3 +53,7 @@
     # the Deevnet API use, from proxmox_node_access in host_vars.
     - role: proxmox_node_access
       tags: [proxmox-access]
+    # Where the node's notifications go: one email target and one rule from
+    # inventory, instead of the installer's root@pam address.
+    - role: proxmox_node_notify
+      tags: [notifications]

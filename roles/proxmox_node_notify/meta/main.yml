@@ -1,0 +1,7 @@
+---
+galaxy_info:
+  role_name: proxmox_node_notify
+  description: Where a Proxmox node's notifications go, from inventory rather than the installer's default
+  license: MIT
+  min_ansible_version: "2.14"
+dependencies: []
