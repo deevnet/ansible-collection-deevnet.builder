@@ -1,0 +1,2 @@
+---
+proxmox_node_nag_script: /usr/local/sbin/deevnet-pve-nag-off

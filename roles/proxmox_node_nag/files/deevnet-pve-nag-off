@@ -1,0 +1,46 @@
+#!/bin/bash
+# Managed by deevnet.builder proxmox_node_nag. Edits will be overwritten.
+#
+# Turns off the "No valid subscription" popup that the Proxmox web UI shows at
+# login. The popup comes from Proxmox.Utils.checked_command in the widget
+# toolkit; this makes that one check false. The Repositories panel runs a
+# separate check, left as is, so it still reports that no subscription is active.
+#
+# An upgrade of proxmox-widget-toolkit puts the original file back; the apt hook
+# beside this script runs it again after every dpkg run.
+#
+# Prints one word: patched, unchanged (already off) or not-found (the code has
+# changed upstream and this script needs a look). With --check, reports
+# without writing.
+set -euo pipefail
+
+file=/usr/share/javascript/proxmox-widget-toolkit/proxmoxlib.js
+check=false
+[[ "${1:-}" == "--check" ]] && check=true
+
+[[ -f "$file" ]] || { echo not-found; exit 0; }
+
+CHECK="$check" perl -0777 -e '
+    my $file = shift;
+    open(my $in, "<", $file) or die "$file: $!";
+    local $/; my $js = <$in>; close $in;
+
+    my $marker = "false /* deevnet: no subscription nag */ && ";
+    if (index($js, $marker) >= 0) { print "unchanged\n"; exit 0; }
+
+    my $n = ($js =~ s{
+        (!res\s*\|\|\s*)
+        (res\.data\.status\.toLowerCase\(\)\s*!==\s*\x27active\x27
+         \s*\)\s*\{\s*Ext\.Msg\.show\(\{\s*
+         title:\s*gettext\(\x27No\ valid\ subscription\x27\))
+    }{$1$marker$2}x);
+    if ($n != 1) { print "not-found\n"; exit 0; }
+    if ($ENV{CHECK} eq "true") { print "patched\n"; exit 0; }
+
+    my $tmp = "$file.deevnet-tmp";
+    open(my $out, ">", $tmp) or die "$tmp: $!";
+    print $out $js; close $out or die "$tmp: $!";
+    chmod((stat $file)[2] & 07777, $tmp);
+    rename($tmp, $file) or die "rename: $!";
+    print "patched\n";
+' "$file"

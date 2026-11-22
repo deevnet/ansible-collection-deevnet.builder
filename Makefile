@@ -1,4 +1,4 @@
-.PHONY: help default deps deps-force build check install-dev install-user rebuild apply list \
+.PHONY: help default pve-nag deps deps-force build check install-dev install-user rebuild apply list \
         publish clean-deps clean-project deep-clean all bootstrap-auth core-auth
 
 # ---------- Config ----------
@@ -62,7 +62,10 @@ help:
 "      Enable bootstrap-authoritative mode (DNS/DHCP/gateway for substrate)" \
 "" \
 "  core-auth" \
-"      Transition to core router-authoritative mode (TFTP only on bootstrap)"
+"      Transition to core router-authoritative mode (TFTP only on bootstrap)" \
+"" \
+"  pve-nag" \
+"      Turn off the Proxmox web UI subscription popup on every hypervisor"
 
 # ---------- Deps ----------
 $(DEPS_STAMP): $(REQS)
@@ -142,3 +145,8 @@ bootstrap-auth: install-dev
 core-auth: install-dev
 	@ANSIBLE_COLLECTIONS_PATH="$(PROJECT_COLLECTIONS_PATH):$(USER_COLLECTIONS_PATH)" \
 	  ansible-playbook playbooks/core-authoritative.yml
+
+# ---------- Proxmox ----------
+pve-nag: install-dev
+	@ANSIBLE_COLLECTIONS_PATH="$(PROJECT_COLLECTIONS_PATH):$(USER_COLLECTIONS_PATH)" \
+	  ansible-playbook playbooks/site.yml --limit hypervisors --tags nag
