@@ -57,3 +57,7 @@
     # inventory, instead of the installer's root@pam address.
     - role: proxmox_node_notify
       tags: [notifications]
+    # No "No valid subscription" popup at web UI login; kept off across
+    # proxmox-widget-toolkit upgrades by an apt hook.
+    - role: proxmox_node_nag
+      tags: [nag]
