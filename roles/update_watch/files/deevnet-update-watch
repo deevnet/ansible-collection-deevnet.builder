@@ -351,7 +351,7 @@ def notice_text(state, report_dir):
     first = min(p["date"] for p in pending)
     lines = [f"Deevnet updates: {len(pending)} new since {first}"
              + (f" ({n_sec} about security)" if n_sec else ""),
-             *[f"  {p['line']}" for p in pending[:6]]]
+             *[f"  {p['line']}"[:100] + ("..." if len(p["line"]) > 98 else "") for p in pending[:6]]]
     if len(pending) > 6:
         lines.append(f"  ... and {len(pending) - 6} more")
     lines += [f"Read {report_dir}/latest.txt; clear this with: make update-watch-ack (deevnet.builder)"]
