@@ -35,6 +35,8 @@
   loop_control:
     label: "{{ item.key }}"
   notify: Restart postfix
+  # In check mode Postfix is not really installed yet.
+  ignore_errors: "{{ ansible_check_mode }}"
   tags: [update_watch]
 
 - name: Postfix is running
@@ -42,6 +44,7 @@
     name: postfix
     enabled: true
     state: started
+  ignore_errors: "{{ ansible_check_mode }}"
   tags: [update_watch]
 
 # --- The account and its key ----------------------------------------------------
@@ -71,13 +74,28 @@
   ansible.builtin.command:
     argv: [ssh-keygen, -q, -t, ed25519, -N, "", -C, "{{ update_watch_user }}@{{ inventory_hostname }}", -f, "{{ update_watch_key }}"]
     creates: "{{ update_watch_key }}"
-  become_user: "{{ update_watch_user }}"
+  tags: [update_watch]
+
+- name: The key is the watcher's alone
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    owner: "{{ update_watch_user }}"
+    group: "{{ update_watch_user }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - {path: "{{ update_watch_key }}", mode: "0600"}
+    - {path: "{{ update_watch_key }}.pub", mode: "0644"}
+  loop_control:
+    label: "{{ item.path }}"
+  ignore_errors: "{{ ansible_check_mode }}"
   tags: [update_watch]
 
 - name: Read the watcher's public key
   ansible.builtin.slurp:
     src: "{{ update_watch_key }}.pub"
   register: _update_watch_pub
+  # In check mode the key is not really made yet.
+  ignore_errors: "{{ ansible_check_mode }}"
   tags: [update_watch]
 
 - name: Create /etc/deevnet
@@ -91,7 +109,7 @@
 
 - name: Publish the public key for update_check
   ansible.builtin.copy:
-    content: "{{ _update_watch_pub.content | b64decode }}"
+    content: "{{ (_update_watch_pub.content | default('')) | b64decode }}"
     dest: "{{ update_watch_public_key_file }}"
     owner: root
     group: root
@@ -120,6 +138,8 @@
     owner: "{{ update_watch_discovery_owner }}"
     group: "{{ update_watch_user }}"
     mode: "2750"
+  # In check mode the watcher's group does not exist yet.
+  ignore_errors: "{{ ansible_check_mode }}"
   tags: [update_watch]
 
 # --- The watcher ------------------------------------------------------------------
@@ -142,6 +162,7 @@
     mode: "0640"
     validate: "python3 -c \"import json,sys; json.load(open('%s'))\""
   no_log: true
+  ignore_errors: "{{ ansible_check_mode }}"
   tags: [update_watch]
 
 - name: Install the watcher's units
@@ -163,4 +184,5 @@
     daemon_reload: "{{ _update_watch_units is changed }}"
     enabled: true
     state: "{{ 'restarted' if _update_watch_units is changed else 'started' }}"
+  ignore_errors: "{{ ansible_check_mode }}"
   tags: [update_watch]
