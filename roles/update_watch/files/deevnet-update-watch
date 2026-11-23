@@ -1,0 +1,389 @@
+#!/usr/bin/python3
+"""deevnet-update-watch - mail the operator what updates are waiting (Patch Management v2).
+
+Once a day, as the deevnet-watch account on the Builder:
+  - every substrate host is asked, over SSH, what updates it has waiting. The
+    key is pinned on each host to one read-only program, deevnet-update-check;
+  - the Omada controller is asked, with a view-only client, whether its devices
+    have newer firmware;
+  - OPNsense's published releases are compared with the version the newest
+    discovery report saw on the core router. The router itself is not asked:
+    its only firmware privilege could also install updates.
+
+It mails when something is new: a security update, a host with updates
+waiting that had none, a new OPNsense release or device firmware, a system that
+stopped answering, and a reminder for anything waiting longer than
+remind_days. Ordinary package churn on a host already behind is in the
+summary but sends nothing by itself. Nothing new, no mail.
+
+    deevnet-update-watch --config /etc/deevnet/update-watch.json [--dry-run]
+
+--dry-run prints the mail it would send and leaves its state alone.
+"""
+import argparse
+import datetime
+import json
+import os
+import re
+import smtplib
+import ssl
+import subprocess
+import sys
+import urllib.request
+from email.message import EmailMessage
+
+# --- Reading what a host said ----------------------------------------------------
+
+
+def sections(text):
+    out, cur = {}, None
+    for line in (text or "").splitlines():
+        if line.startswith("### "):
+            cur = line[4:].strip()
+            out[cur] = []
+        elif cur:
+            out[cur].append(line)
+    return {k: "\n".join(v) for k, v in out.items()}
+
+
+def kv(text, sep="="):
+    out = {}
+    for line in (text or "").splitlines():
+        if sep in line:
+            k, v = line.split(sep, 1)
+            out[k.strip()] = v.strip().strip('"')
+    return out
+
+
+def nevra_name(nevra):
+    """acl-2.4.0-1.fc43.x86_64 -> acl; NetworkManager-1:1.54.3-3.fc43.x86_64 -> NetworkManager."""
+    parts = nevra.rsplit("-", 2)
+    return parts[0] if len(parts) == 3 else nevra
+
+
+def parse_check(text, now):
+    """deevnet-update-check's output -> {os, updates: [{name, version, security}], cache_days, error}."""
+    s = sections(text)
+    osr = kv(s.get("os"))
+    res = {"os": osr.get("PRETTY_NAME", ""), "updates": [], "cache_days": None, "error": s.get("error", "").strip()}
+    if "dnf-check-upgrade" in s:
+        lines = s["dnf-check-upgrade"].splitlines()
+        rc = kv(lines[0]).get("rc", "") if lines else ""
+        if rc not in ("0", "100"):
+            res["error"] = "dnf check-upgrade failed: " + " ".join(lines[1:])[:300]
+        secure = set()
+        try:
+            secure = {nevra_name(a.get("nevra", "")) for a in json.loads(s.get("dnf-security") or "[]")}
+        except ValueError:
+            pass
+        for line in lines[1:]:
+            if not line.strip():
+                break  # "Obsoleting packages" follows a blank line
+            f = line.split()
+            if len(f) == 3:
+                name = f[0].rsplit(".", 1)[0]
+                res["updates"].append({"name": name, "version": f[1], "security": name in secure})
+    elif "apt-upgradable" in s:
+        for line in s["apt-upgradable"].splitlines():
+            f = line.split()
+            if "/" not in (f[0] if f else "") or len(f) < 2:
+                continue  # "Listing..." and blanks
+            name, suites = f[0].split("/", 1)
+            res["updates"].append({"name": name, "version": f[1], "security": "-security" in suites})
+    age = (s.get("cache-age") or "").strip()
+    if age:
+        try:
+            res["cache_days"] = round((now.timestamp() - float(age)) / 86400, 1)
+        except ValueError:
+            pass
+    return res
+
+
+# --- Asking -----------------------------------------------------------------------
+
+
+def ask_host(cfg, target):
+    """(text, error): the host's check output, or why it could not be had."""
+    if target["name"] == cfg["self"]:
+        argv = [cfg["check"]]
+    else:
+        argv = ["ssh", "-i", cfg["ssh_key"], "-o", "BatchMode=yes", "-o", "ConnectTimeout=15",
+                "-o", "StrictHostKeyChecking=accept-new", "-o", "IdentitiesOnly=yes",
+                f"{cfg['ssh_user']}@{target['address']}", "deevnet-update-check"]
+    try:
+        p = subprocess.run(argv, capture_output=True, text=True, timeout=180)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return None, str(e)
+    if p.returncode != 0 or "### os" not in p.stdout:
+        return None, (p.stderr.strip() or f"exit {p.returncode}")[:300]
+    return p.stdout, None
+
+
+def http_json(url, data=None, headers=None, verify=True, timeout=30):
+    ctx = ssl.create_default_context()
+    if not verify:
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+    body = json.dumps(data).encode() if data is not None else None
+    req = urllib.request.Request(url, data=body, method="POST" if body else "GET",
+                                 headers={"Content-Type": "application/json",
+                                          "User-Agent": "deevnet-update-watch", **(headers or {})})
+    with urllib.request.urlopen(req, timeout=timeout, context=ctx) as r:
+        return json.load(r)
+
+
+def ask_omada(cfg):
+    """([{host, item, current, latest}], error) for the devices the controller manages."""
+    o = cfg.get("omada") or {}
+    if not o.get("url") or not o.get("client_id"):
+        return [], None  # not configured: noted in the summary, not a failure
+    v = o.get("verify", True)
+    try:
+        # omada-api: UNDOCUMENTED /api/info tested-on 6.3.0.45
+        cid = http_json(f"{o['url']}/api/info", verify=v)["result"]["omadacId"]
+        # omada-api: documented authorize/token (TP-Link Open API guide) spec 6.3.0.45
+        tok = http_json(f"{o['url']}/openapi/authorize/token?grant_type=client_credentials",
+                        {"omadacId": cid, "client_id": o["client_id"], "client_secret": o["client_secret"]},
+                        verify=v)
+        if tok.get("errorCode") != 0:
+            return [], f"Omada token refused (errorCode {tok.get('errorCode')})"
+        hdr = {"Authorization": "AccessToken=" + tok["result"]["accessToken"]}
+        api = f"{o['url']}/openapi/v1/{cid}"
+        out = []
+        # omada-api: documented getSiteList, getSiteDeviceList, getFirmwareInfo spec 6.3.0.45
+        for site in http_json(f"{api}/sites?page=1&pageSize=100", headers=hdr, verify=v)["result"]["data"]:
+            sid = site["siteId"]
+            for d in http_json(f"{api}/sites/{sid}/devices?page=1&pageSize=100", headers=hdr, verify=v)["result"]["data"]:
+                fw = http_json(f"{api}/sites/{sid}/devices/{d['mac']}/latest-firmware-info",
+                               headers=hdr, verify=v).get("result") or {}
+                cur, last = fw.get("curFwVer", ""), fw.get("lastFwVer", "")
+                if last and cur and last != cur:
+                    out.append({"host": d.get("name") or d["mac"], "item": f"{d.get('model', '')} firmware",
+                                "current": cur, "latest": last, "src": "Omada"})
+        return out, None
+    except Exception as e:  # noqa: BLE001 - any failure is reported, not raised
+        return [], f"Omada: {e}"
+
+
+def vtuple(v):
+    return tuple(int(x) for x in v.split("."))
+
+
+def ask_opnsense(cfg, tags=None):
+    """([{host, item, current, latest, kind}], error): OPNsense releases newer than the router's."""
+    o = cfg.get("opnsense") or {}
+    d = o.get("discovery_dir", "")
+    try:
+        reports = sorted(f for f in os.listdir(d) if re.fullmatch(r"\d{4}-\d{2}-\d{2}\.json", f))
+    except OSError as e:
+        return [], f"no discovery reports: {e}"
+    if not reports:
+        return [], "no discovery report yet: run make discover"
+    rep = json.load(open(os.path.join(d, reports[-1]), encoding="utf-8"))
+    router, installed = None, None
+    for host, rows in rep.get("hosts", {}).items():
+        for r in rows:
+            if r.get("item") == "OPNsense" and r.get("observed"):
+                router, installed = host, r["observed"]
+    if not installed:
+        return [], f"the discovery report of {reports[-1][:10]} has no OPNsense version"
+    base = re.match(r"\d+(\.\d+)+", installed)
+    if not base:
+        return [], f"cannot read OPNsense version {installed!r}"
+    have = vtuple(base.group(0))
+    if tags is None:
+        try:
+            tags = [t["name"] for t in http_json(o["tags_url"])]
+        except Exception as e:  # noqa: BLE001
+            return [], f"OPNsense releases: {e}"
+    stable = sorted({vtuple(t) for t in tags if re.fullmatch(r"\d+\.\d+(\.\d+)?", t)})
+    series = have[:2]
+    out = []
+    same = [t for t in stable if t[:2] == series and t > have]
+    if same:
+        out.append({"host": router, "item": "OPNsense", "current": installed,
+                    "latest": ".".join(map(str, same[-1])), "kind": "point release", "src": "OPNsense releases"})
+    newer = [t for t in stable if t[:2] > series]
+    if newer:
+        line = max(t[:2] for t in newer)
+        out.append({"host": router, "item": "OPNsense", "current": installed,
+                    "latest": ".".join(map(str, line)), "kind": "new release line", "src": "OPNsense releases"})
+    return out, None
+
+
+# --- Deciding what to mail ------------------------------------------------------
+
+
+def iso(dt):
+    return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def parse_iso(s):
+    return datetime.datetime.strptime(s, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc)
+
+
+def evaluate(state, hosts, extras, failures, now, remind_days):
+    """Update state in place; return the mail's 'what is new' lines, empty when nothing is.
+
+    hosts:    {name: parsed check} for hosts that answered and are mailed about
+    extras:   [{host, item, current, latest, kind?}] from Omada and OPNsense
+    failures: {name: error} for whatever did not answer
+    """
+    items = state.setdefault("items", {})
+    down = state.setdefault("down", {})
+    news, current = [], set()
+
+    def note(key, src):
+        """'new', 'remind' or None, and the record kept for the key."""
+        current.add(key)
+        rec = items.get(key)
+        if rec is None:
+            items[key] = {"first_seen": iso(now), "last_mailed": iso(now), "src": src}
+            return "new"
+        if (now - parse_iso(rec["last_mailed"])).days >= remind_days:
+            rec["last_mailed"] = iso(now)
+            return "remind"
+        return None
+
+    def waited(key):
+        return (now - parse_iso(items[key]["first_seen"])).days
+
+    for name, h in sorted(hosts.items()):
+        ups = h["updates"]
+        if ups:
+            k = f"{name}|any"
+            st = note(k, name)
+            if st == "new":
+                news.append(f"{name}: updates waiting ({len(ups)})")
+            elif st == "remind":
+                news.append(f"{name}: updates waiting ({len(ups)}), the oldest for {waited(k)} days")
+        new_sec, old_sec = [], []
+        for u in ups:
+            if u["security"]:
+                st = note(f"{name}|sec|{u['name']}|{u['version']}", name)
+                (new_sec if st == "new" else old_sec if st == "remind" else []).append(u["name"])
+        for label, names in (("new security updates", new_sec), ("security updates still waiting after "
+                                                                  f"{remind_days} days", old_sec)):
+            if names:
+                names = sorted(set(names))
+                more = f" and {len(names) - 20} more" if len(names) > 20 else ""
+                news.append(f"{name}: {len(names)} {label}: {', '.join(names[:20])}{more}")
+    for e in extras:
+        kind = f" ({e['kind']})" if e.get("kind") else ""
+        k = f"{e['host']}|{e['item']}|{e['latest']}"
+        st = note(k, e.get("src", e["host"]))
+        line = f"{e['host']}: {e['item']} {e['latest']} is out{kind}; running {e['current']}"
+        if st == "new":
+            news.append(line)
+        elif st == "remind":
+            news.append(f"{line} (still waiting, {waited(k)} days)")
+
+    # Gone from what is waiting: applied, or superseded. Forget it, so it is
+    # news again if it ever comes back.
+    for key in [k for k in items if k not in current]:
+        # A host or source that did not answer keeps its items: nothing is known
+        # about them today.
+        if items[key].get("src", key.split("|", 1)[0]) not in failures:
+            del items[key]
+
+    for name, err in sorted(failures.items()):
+        if name not in down:
+            down[name] = iso(now)
+            news.append(f"{name}: did not answer ({err})")
+    for name in [n for n in down if n not in failures]:
+        del down[name]
+    return news
+
+
+def summary(hosts, unmailed, extras, failures, notes=()):
+    lines = []
+    for name, h in sorted({**hosts, **unmailed}.items()):
+        ups = h["updates"]
+        sec = sorted({u["name"] for u in ups if u["security"]})
+        tail = " (Proxmox VE mails its own)" if name in unmailed else ""
+        stale = f"; package cache {h['cache_days']} days old" if (h.get("cache_days") or 0) > 3 else ""
+        err = f"; {h['error']}" if h.get("error") else ""
+        if not ups:
+            lines.append(f"  {name}: up to date ({h['os']}){stale}{err}{tail}")
+            continue
+        s = f", {len(sec)} security: {', '.join(sec[:15])}{' ...' if len(sec) > 15 else ''}" if sec else ""
+        lines.append(f"  {name}: {len(ups)} waiting{s} ({h['os']}){stale}{err}{tail}")
+    for e in extras:
+        lines.append(f"  {e['host']}: {e['item']} {e['current']} -> {e['latest']}")
+    for name, err in sorted(failures.items()):
+        lines.append(f"  {name}: no answer ({err})")
+    lines += [f"  {n}" for n in notes]
+    return lines
+
+
+def compose(cfg, news, hosts, unmailed, extras, failures, now, notes=()):
+    n_sec = sum(1 for h in hosts.values() for u in h["updates"] if u["security"])
+    behind = [n for n, h in hosts.items() if h["updates"]] + sorted({e["host"] for e in extras})
+    n_up = sum(len(h["updates"]) for h in hosts.values()) + len(extras)
+    subject = f"[deevnet] {n_up} updates waiting on {len(set(behind))} systems"
+    if n_sec:
+        subject += f", {n_sec} security"
+    if failures:
+        subject += f", {len(failures)} not answering"
+    body = ["New since the last mail:", *[f"  {x}" for x in news], "",
+            "Everything waiting now:", *summary(hosts, unmailed, extras, failures, notes), "",
+            f"Checked {iso(now)} by deevnet-update-watch on {cfg['self']}.",
+            "Applying them is the monthly patch cycle; see the runbook's Patching page."]
+    msg = EmailMessage()
+    msg["Subject"], msg["From"], msg["To"] = subject, cfg["mail_from"], cfg["mail_to"]
+    msg.set_content("\n".join(body) + "\n")
+    return msg
+
+
+# --- Running ----------------------------------------------------------------------
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    ap.add_argument("--config", default="/etc/deevnet/update-watch.json")
+    ap.add_argument("--dry-run", action="store_true")
+    a = ap.parse_args()
+    cfg = json.load(open(a.config, encoding="utf-8"))
+    now = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0)
+
+    hosts, unmailed, failures = {}, {}, {}
+    for t in cfg["targets"]:
+        text, err = ask_host(cfg, t)
+        if err:
+            failures[t["name"]] = err
+            continue
+        parsed = parse_check(text, now)
+        (hosts if t.get("mail", True) else unmailed)[t["name"]] = parsed
+    extras, notes = [], []
+    if not (cfg.get("omada") or {}).get("client_id"):
+        notes.append("Omada devices not checked: no view-only client configured")
+    for source, (found, err) in (("Omada", ask_omada(cfg)), ("OPNsense releases", ask_opnsense(cfg))):
+        extras += found
+        if err:
+            failures[source] = err
+
+    state_path = cfg["state"]
+    try:
+        state = json.load(open(state_path, encoding="utf-8"))
+    except (OSError, ValueError):
+        state = {}
+    news = evaluate(state, hosts, extras, failures, now, int(cfg.get("remind_days", 30)))
+    msg = compose(cfg, news, hosts, unmailed, extras, failures, now, notes) if news else None
+
+    if a.dry_run:
+        print(msg.as_string() if msg else "Nothing new: no mail would be sent.\n\n"
+              + "\n".join(summary(hosts, unmailed, extras, failures, notes)))
+        return 0
+    if msg:
+        with smtplib.SMTP("127.0.0.1", 25, timeout=60) as s:
+            s.send_message(msg)
+    tmp = state_path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(state, f, indent=1, sort_keys=True)
+    os.replace(tmp, state_path)
+    print(f"{len(news)} new; mail {'sent' if msg else 'not needed'}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

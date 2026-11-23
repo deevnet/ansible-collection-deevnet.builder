@@ -1,0 +1,18 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Mail the operator the updates waiting on the substrate (Patch Management v2)
+Wants=network-online.target
+After=network-online.target postfix.service
+
+[Service]
+Type=oneshot
+User={{ update_watch_user }}
+Group={{ update_watch_user }}
+ExecStart={{ update_watch_script }} --config {{ update_watch_config }}
+# A run is a minute or two: one SSH call per host, a few HTTPS calls.
+TimeoutStartSec=900
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths={{ update_watch_home }}
+ProtectHome=true
+PrivateTmp=true

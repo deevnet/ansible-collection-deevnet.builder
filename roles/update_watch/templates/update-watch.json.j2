@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "self": {{ inventory_hostname | to_json }},
+  "targets": [
+{% for h in update_watch_targets | unique %}
+    {"name": {{ h | to_json }}, "address": {{ (inventory_hostname if h == inventory_hostname else hostvars[h]['ansible_host']) | to_json }}, "mail": {{ (h not in (update_watch_unmailed_groups | map('extract', groups) | flatten)) | to_json }}}{{ '' if loop.last else ',' }}
+{% endfor %}
+  ],
+  "ssh_user": {{ update_watch_user | to_json }},
+  "ssh_key": {{ update_watch_key | to_json }},
+  "check": "/usr/local/sbin/deevnet-update-check",
+  "state": {{ update_watch_state | to_json }},
+  "remind_days": {{ update_watch_remind_days | int }},
+  "mail_to": {{ update_watch_mail_to | to_json }},
+  "mail_from": {{ update_watch_mail_from | to_json }},
+  "omada": {
+    "url": {{ update_watch_omada_url | to_json }},
+    "verify": {{ update_watch_omada_verify | bool | to_json }},
+    "client_id": {{ update_watch_omada_client_id | to_json }},
+    "client_secret": {{ update_watch_omada_client_secret | to_json }}
+  },
+  "opnsense": {
+    "tags_url": {{ update_watch_opnsense_tags_url | to_json }},
+    "discovery_dir": {{ update_watch_discovery_dir | to_json }}
+  }
+}

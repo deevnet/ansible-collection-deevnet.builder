@@ -1,0 +1,85 @@
+---
+# The check is installed everywhere it is asked for, the watcher included: the
+# watcher runs it on itself directly. The account and its key go only on the
+# hosts the watcher reaches over SSH.
+
+- name: Install the update check
+  ansible.builtin.copy:
+    src: deevnet-update-check
+    dest: "{{ update_check_path }}"
+    owner: root
+    group: root
+    # Executable by anyone, writable by root only: it reads, and prints what it
+    # read. Its safety rests on what it does, not on who can run it.
+    mode: "0755"
+  tags: [update_check]
+
+- name: The watcher's account and key
+  when: inventory_hostname != update_check_watcher
+  tags: [update_check]
+  block:
+    - name: Fail early when there is no watcher to pin the key to
+      ansible.builtin.assert:
+        that:
+          - update_check_watcher | length > 0
+          - update_check_from | length > 0
+        fail_msg: >-
+          No host in update_watchers, or it has no address. The watcher's key
+          must be pinned to a source address (from=): that is what keeps a
+          stolen key unusable from anywhere else.
+        quiet: true
+
+    - name: Read the watcher's public key
+      ansible.builtin.set_fact:
+        _update_check_key: "{{ lookup('ansible.builtin.file', update_check_public_key_file, errors='ignore') | default('', true) }}"
+
+    - name: Fail early when the watcher has no key yet
+      ansible.builtin.assert:
+        that:
+          - _update_check_key is match('ssh-ed25519 ')
+        fail_msg: >-
+          {{ update_check_public_key_file }} is missing or not an ed25519 key on
+          the control node. Run the update_watchers play first
+          (make update-watch), which makes the watcher's key.
+        quiet: true
+
+    # /bin/sh, not nologin: a forced command runs through the account's shell.
+    # The key, not the shell, is what confines it.
+    - name: Create the watcher's account
+      ansible.builtin.user:
+        name: "{{ update_check_user }}"
+        home: "{{ update_check_home }}"
+        shell: /bin/sh
+        password: "!"
+        system: true
+        create_home: true
+
+    - name: Create the watcher's .ssh directory
+      ansible.builtin.file:
+        path: "{{ update_check_home }}/.ssh"
+        state: directory
+        owner: "{{ update_check_user }}"
+        group: "{{ update_check_user }}"
+        mode: "0700"
+
+    # Every restriction on this line is a requirement, as for the vernemq and
+    # victorialogs writers:
+    #   command=  pins the key to the check. The client's command is ignored,
+    #             and the check never reads SSH_ORIGINAL_COMMAND.
+    #   restrict  denies pty, agent, port and X11 forwarding and user-rc, and
+    #             whatever OpenSSH adds later.
+    #   from=     binds the key to the watcher's address.
+    - name: Pin the watcher's key to the check
+      ansible.posix.authorized_key:
+        user: "{{ update_check_user }}"
+        key: "{{ _update_check_key }}"
+        key_options: 'command="{{ update_check_path }}",restrict,from="{{ update_check_from }}"'
+        exclusive: true
+        manage_dir: false
+
+    # On SELinux hosts the key file needs its label, or sshd ignores it.
+    - name: Label the watcher's .ssh for sshd
+      ansible.builtin.command:
+        argv: [restorecon, -R, "{{ update_check_home }}/.ssh"]
+      changed_when: false
+      when: ansible_facts.selinux.status | default('disabled') == 'enabled'
