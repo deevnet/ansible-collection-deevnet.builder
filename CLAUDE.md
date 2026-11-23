@@ -28,21 +28,6 @@ dual-signed `.asc` with one key imported therefore fails on a good signature. De
 `gpg_key_urls` (list) for such artifacts; `gpg_key_url` (singular) still works for single-signed
 ones.
 
-### Container Service Management
-The `omada_controller` role demonstrates systemd management of podman containers:
-- Downloads container image tarball from local artifact server
-- Loads tarball with `podman load`
-- Creates container with `podman create` (port mappings, volumes, env vars)
-- Manages lifecycle via systemd service with proper restart handling
-
-### PXE Boot Server (Bootstrap Role)
-The `bootstrap` role sets up a PXE network boot server using dnsmasq:
-- Provides DHCP and TFTP services for PXE clients
-- Fetches netboot images (kernel/initrd) from artifact server
-- Generates PXE boot menu from `bootstrap_netboot_images` list
-- Configures SELinux contexts for TFTP directories
-- Opens firewall ports (DHCP 67/udp, TFTP 69/udp, optionally DNS)
-
 ### Variable Conventions
 - `dev_users: []` - List of users for workstation role (define in host_vars/group_vars). A user the role creates starts with its own name as its password (`initial_password` overrides), expired so the first login changes it; existing accounts are never touched
 - `artifacts_to_fetch: []` - List of artifacts to download (define in host_vars/group_vars)
@@ -50,9 +35,3 @@ The `bootstrap` role sets up a PXE network boot server using dnsmasq:
 - `omada_*` - Omada controller configuration (container image, ports, volumes, env vars)
 - `nginx_artifacts_root: /srv/dvntm-http` - Default artifact server root
 - `bootstrap_*` - PXE boot server configuration (DHCP range, interface, TFTP root, netboot images)
-
-## Notes
-
-- All roles assume Fedora/RHEL (uses `dnf`, yum repos)
-- Remote user is `a_autoprov` with become enabled
-- Inventory is external to this repo (see `ansible.cfg`)

@@ -20,11 +20,19 @@
 # Send-only: it listens on loopback for this host's own mail and delivers it
 # directly, as the hypervisors' Postfix does. It accepts nothing from the
 # network and is nobody's relay.
+# postconf, not lineinfile: main.cf holds a parameter more than once, commented
+# and not, and only postconf knows which line is the setting.
 - name: Configure Postfix to send only
-  ansible.builtin.lineinfile:
-    path: /etc/postfix/main.cf
-    regexp: '^#?\s*{{ item.key }}\s*='
-    line: "{{ item.key }} = {{ item.value }}"
+  ansible.builtin.shell: |
+    set -eu
+    if [ "$(postconf -h {{ item.key }})" = {{ item.value | quote }} ] && \
+       [ "$(grep -c '^{{ item.key }}[[:space:]]*=' /etc/postfix/main.cf)" = 1 ]; then
+      echo same
+    else
+      postconf -X {{ item.key }}
+      postconf -e {{ (item.key ~ ' = ' ~ item.value) | quote }}
+      echo changed
+    fi
   loop:
     - {key: inet_interfaces, value: loopback-only}
     - {key: inet_protocols, value: ipv4}
@@ -34,6 +42,8 @@
     - {key: relayhost, value: ""}
   loop_control:
     label: "{{ item.key }}"
+  register: _update_watch_postconf
+  changed_when: "'changed' in _update_watch_postconf.stdout"
   notify: Restart postfix
   # In check mode Postfix is not really installed yet.
   ignore_errors: "{{ ansible_check_mode }}"
