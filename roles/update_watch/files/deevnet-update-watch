@@ -331,7 +331,11 @@ def compose(cfg, news, hosts, unmailed, extras, failures, now, notes=()):
             "Applying them is the monthly patch cycle; see the runbook's Patching page."]
     msg = EmailMessage()
     msg["Subject"], msg["From"], msg["To"] = subject, cfg["mail_from"], cfg["mail_to"]
-    msg.set_content("\n".join(body) + "\n")
+    text = "\n".join(body) + "\n"
+    try:
+        msg.set_content(text, charset="us-ascii", cte="7bit")  # plain, readable anywhere
+    except (UnicodeError, ValueError):
+        msg.set_content(text)
     return msg
 
 
@@ -353,6 +357,10 @@ def main():
             failures[t["name"]] = err
             continue
         parsed = parse_check(text, now)
+        if parsed["error"] and not parsed["updates"]:
+            # It answered but could not check: not "up to date", unknown.
+            failures[t["name"]] = f"answered, but could not check: {parsed['error']}"
+            continue
         (hosts if t.get("mail", True) else unmailed)[t["name"]] = parsed
     extras, notes = [], []
     if not (cfg.get("omada") or {}).get("client_id"):
