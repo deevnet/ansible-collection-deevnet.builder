@@ -1,62 +1,4 @@
 ---
-- name: Fail early without somewhere to send the mail
-  ansible.builtin.assert:
-    that:
-      - update_watch_mail_to | length > 0
-    fail_msg: >-
-      update_watch_mail_to is empty. Set it in inventory (group_vars for
-      update_watchers), from the vault.
-    quiet: true
-  tags: [update_watch]
-
-# --- Mail ---------------------------------------------------------------------
-
-- name: Install Postfix
-  ansible.builtin.dnf:
-    name: postfix
-    state: present
-  tags: [update_watch]
-
-# Send-only: it listens on loopback for this host's own mail and delivers it
-# directly, as the hypervisors' Postfix does. It accepts nothing from the
-# network and is nobody's relay.
-# postconf, not lineinfile: main.cf holds a parameter more than once, commented
-# and not, and only postconf knows which line is the setting.
-- name: Configure Postfix to send only
-  ansible.builtin.shell: |
-    set -eu
-    if [ "$(postconf -h {{ item.key }})" = {{ item.value | quote }} ] && \
-       [ "$(grep -c '^{{ item.key }}[[:space:]]*=' /etc/postfix/main.cf)" = 1 ]; then
-      echo same
-    else
-      postconf -X {{ item.key }}
-      postconf -e {{ (item.key ~ ' = ' ~ item.value) | quote }}
-      echo changed
-    fi
-  loop:
-    - {key: inet_interfaces, value: loopback-only}
-    - {key: inet_protocols, value: ipv4}
-    - {key: myhostname, value: "{{ inventory_hostname }}.{{ deevnet_substrate }}.{{ deevnet_root_domain }}"}
-    - {key: mydestination, value: ""}
-    - {key: mynetworks, value: 127.0.0.0/8}
-    - {key: relayhost, value: ""}
-  loop_control:
-    label: "{{ item.key }}"
-  register: _update_watch_postconf
-  changed_when: "'changed' in _update_watch_postconf.stdout"
-  notify: Restart postfix
-  # In check mode Postfix is not really installed yet.
-  ignore_errors: "{{ ansible_check_mode }}"
-  tags: [update_watch]
-
-- name: Postfix is running
-  ansible.builtin.systemd_service:
-    name: postfix
-    enabled: true
-    state: started
-  ignore_errors: "{{ ansible_check_mode }}"
-  tags: [update_watch]
-
 # --- The account and its key ----------------------------------------------------
 
 - name: Create the watcher's account
@@ -150,6 +92,27 @@
     mode: "2750"
   # In check mode the watcher's group does not exist yet.
   ignore_errors: "{{ ansible_check_mode }}"
+  tags: [update_watch]
+
+# --- Where it reports ------------------------------------------------------------
+
+- name: The report directory, readable by the operator
+  ansible.builtin.file:
+    path: "{{ update_watch_report_dir }}"
+    state: directory
+    owner: "{{ update_watch_user }}"
+    group: "{{ update_watch_user }}"
+    mode: "0755"
+  ignore_errors: "{{ ansible_check_mode }}"
+  tags: [update_watch]
+
+- name: The banner at login
+  ansible.builtin.template:
+    src: deevnet-updates.sh.j2
+    dest: "{{ update_watch_profile_script }}"
+    owner: root
+    group: root
+    mode: "0644"
   tags: [update_watch]
 
 # --- The watcher ------------------------------------------------------------------

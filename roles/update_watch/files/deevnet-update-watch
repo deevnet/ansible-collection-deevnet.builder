@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-"""deevnet-update-watch - mail the operator what updates are waiting (Patch Management v2).
+"""deevnet-update-watch - report what updates are waiting (Patch Management v2).
 
 Once a day, as the deevnet-watch account on the Builder:
   - every substrate host is asked, over SSH, what updates it has waiting. The
@@ -10,27 +10,31 @@ Once a day, as the deevnet-watch account on the Builder:
     discovery report saw on the core router. The router itself is not asked:
     its only firmware privilege could also install updates.
 
-It mails when something is new: a security update, a host with updates
-waiting that had none, a new OPNsense release or device firmware, a system that
-stopped answering, and a reminder for anything waiting longer than
-remind_days. Ordinary package churn on a host already behind is in the
-summary but sends nothing by itself. Nothing new, no mail.
+It writes, in report_dir:
+  latest.txt         everything waiting now, every run;
+  YYYY-MM-DD.txt     what was new that day: a security update, a host with
+                     updates waiting that had none, a new OPNsense release or
+                     device firmware, a system that stopped answering, and a
+                     reminder for anything waiting longer than remind_days;
+  notice             a few lines a login banner shows while anything new has
+                     not been acknowledged. Empty when there is nothing.
+Ordinary package churn on a host already behind is in latest.txt but is not
+news. Nothing leaves the Builder: no mail, no network but the questions.
 
-    deevnet-update-watch --config /etc/deevnet/update-watch.json [--dry-run]
+    deevnet-update-watch --config /etc/deevnet/update-watch.json [--dry-run | --ack]
 
---dry-run prints the mail it would send and leaves its state alone.
+--dry-run prints what it would write and leaves everything alone.
+--ack     clears the notice: the operator has read the report.
 """
 import argparse
 import datetime
 import json
 import os
 import re
-import smtplib
 import ssl
 import subprocess
 import sys
 import urllib.request
-from email.message import EmailMessage
 
 # --- Reading what a host said ----------------------------------------------------
 
@@ -211,7 +215,7 @@ def ask_opnsense(cfg, tags=None):
     return out, None
 
 
-# --- Deciding what to mail ------------------------------------------------------
+# --- Deciding what is news --------------------------------------------------------
 
 
 def iso(dt):
@@ -223,9 +227,9 @@ def parse_iso(s):
 
 
 def evaluate(state, hosts, extras, failures, now, remind_days):
-    """Update state in place; return the mail's 'what is new' lines, empty when nothing is.
+    """Update state in place; return the 'what is new' lines, empty when nothing is.
 
-    hosts:    {name: parsed check} for hosts that answered and are mailed about
+    hosts:    {name: parsed check} for hosts that answered and are reported on
     extras:   [{host, item, current, latest, kind?}] from Omada and OPNsense
     failures: {name: error} for whatever did not answer
     """
@@ -300,7 +304,7 @@ def summary(hosts, unmailed, extras, failures, notes=()):
     for name, h in sorted({**hosts, **unmailed}.items()):
         ups = h["updates"]
         sec = sorted({u["name"] for u in ups if u["security"]})
-        tail = " (Proxmox VE mails its own)" if name in unmailed else ""
+        tail = " (not news: Proxmox VE mails its own)" if name in unmailed else ""
         stale = f"; package cache {h['cache_days']} days old" if (h.get("cache_days") or 0) > 3 else ""
         err = f"; {h['error']}" if h.get("error") else ""
         if not ups:
@@ -316,27 +320,52 @@ def summary(hosts, unmailed, extras, failures, notes=()):
     return lines
 
 
-def compose(cfg, news, hosts, unmailed, extras, failures, now, notes=()):
+def headline(hosts, extras, failures):
     n_sec = sum(1 for h in hosts.values() for u in h["updates"] if u["security"])
-    behind = [n for n, h in hosts.items() if h["updates"]] + sorted({e["host"] for e in extras})
+    behind = {n for n, h in hosts.items() if h["updates"]} | {e["host"] for e in extras}
     n_up = sum(len(h["updates"]) for h in hosts.values()) + len(extras)
-    subject = f"[deevnet] {n_up} updates waiting on {len(set(behind))} systems"
+    line = f"{n_up} updates waiting on {len(behind)} systems"
     if n_sec:
-        subject += f", {n_sec} security"
+        line += f", {n_sec} security"
     if failures:
-        subject += f", {len(failures)} not answering"
-    body = ["New since the last mail:", *[f"  {x}" for x in news], "",
-            "Everything waiting now:", *summary(hosts, unmailed, extras, failures, notes), "",
-            f"Checked {iso(now)} by deevnet-update-watch on {cfg['self']}.",
-            "Applying them is the monthly patch cycle; see the runbook's Patching page."]
-    msg = EmailMessage()
-    msg["Subject"], msg["From"], msg["To"] = subject, cfg["mail_from"], cfg["mail_to"]
-    text = "\n".join(body) + "\n"
-    try:
-        msg.set_content(text, charset="us-ascii", cte="7bit")  # plain, readable anywhere
-    except (UnicodeError, ValueError):
-        msg.set_content(text)
-    return msg
+        line += f", {len(failures)} not answering"
+    return line
+
+
+def report(cfg, title, news, hosts, unmailed, extras, failures, now, notes=()):
+    body = [title, ""]
+    if news:
+        body += ["New:", *[f"  {x}" for x in news], ""]
+    body += ["Everything waiting now:", *summary(hosts, unmailed, extras, failures, notes), "",
+             f"Checked {iso(now)} by deevnet-update-watch on {cfg['self']}.",
+             "Applying them is the monthly patch cycle; see the runbook's Patching page.", ""]
+    return "\n".join(body)
+
+
+def notice_text(state, report_dir):
+    """The banner, from what is pending: empty when nothing is."""
+    pending = state.get("pending") or []
+    if not pending:
+        return ""
+    n_sec = sum(1 for p in pending if "security" in p["line"])
+    first = min(p["date"] for p in pending)
+    lines = [f"Deevnet updates: {len(pending)} new since {first}"
+             + (f" ({n_sec} about security)" if n_sec else ""),
+             *[f"  {p['line']}" for p in pending[:6]]]
+    if len(pending) > 6:
+        lines.append(f"  ... and {len(pending) - 6} more")
+    lines += [f"Read {report_dir}/latest.txt; clear this with: make update-watch-ack (deevnet.builder)"]
+    width = max(len(x) for x in lines)
+    bar = "=" * min(width, 100)
+    return "\n".join([bar, *lines, bar]) + "\n"
+
+
+def write(path, text):
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(text)
+    os.chmod(tmp, 0o644)
+    os.replace(tmp, path)
 
 
 # --- Running ----------------------------------------------------------------------
@@ -345,10 +374,26 @@ def compose(cfg, news, hosts, unmailed, extras, failures, now, notes=()):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--config", default="/etc/deevnet/update-watch.json")
-    ap.add_argument("--dry-run", action="store_true")
+    g = ap.add_mutually_exclusive_group()
+    g.add_argument("--dry-run", action="store_true")
+    g.add_argument("--ack", action="store_true")
     a = ap.parse_args()
     cfg = json.load(open(a.config, encoding="utf-8"))
+    rdir = cfg["report_dir"]
     now = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0)
+    state_path = cfg["state"]
+    try:
+        state = json.load(open(state_path, encoding="utf-8"))
+    except (OSError, ValueError):
+        state = {}
+
+    if a.ack:
+        n = len(state.get("pending") or [])
+        state["pending"] = []
+        write(state_path, json.dumps(state, indent=1, sort_keys=True))
+        write(os.path.join(rdir, "notice"), "")
+        print(f"acknowledged {n}; the banner is clear")
+        return 0
 
     hosts, unmailed, failures = {}, {}, {}
     for t in cfg["targets"]:
@@ -361,7 +406,7 @@ def main():
             # It answered but could not check: not "up to date", unknown.
             failures[t["name"]] = f"answered, but could not check: {parsed['error']}"
             continue
-        (hosts if t.get("mail", True) else unmailed)[t["name"]] = parsed
+        (hosts if t.get("news", True) else unmailed)[t["name"]] = parsed
     extras, notes = [], []
     if not (cfg.get("omada") or {}).get("client_id"):
         notes.append("Omada devices not checked: no view-only client configured")
@@ -370,26 +415,26 @@ def main():
         if err:
             failures[source] = err
 
-    state_path = cfg["state"]
-    try:
-        state = json.load(open(state_path, encoding="utf-8"))
-    except (OSError, ValueError):
-        state = {}
     news = evaluate(state, hosts, extras, failures, now, int(cfg.get("remind_days", 30)))
-    msg = compose(cfg, news, hosts, unmailed, extras, failures, now, notes) if news else None
+    day = now.strftime("%Y-%m-%d")
+    state.setdefault("pending", []).extend({"date": day, "line": x} for x in news)
+    title = headline(hosts, extras, failures)
+    latest = report(cfg, title, [], hosts, unmailed, extras, failures, now, notes)
+    dated = report(cfg, title, news, hosts, unmailed, extras, failures, now, notes) if news else None
+    notice = notice_text(state, rdir)
 
     if a.dry_run:
-        print(msg.as_string() if msg else "Nothing new: no mail would be sent.\n\n"
-              + "\n".join(summary(hosts, unmailed, extras, failures, notes)))
+        print(f"--- {rdir}/notice\n{notice or '(empty)'}")
+        print(f"--- {rdir}/{day}.txt\n{dated or '(not written: nothing new)'}")
         return 0
-    if msg:
-        with smtplib.SMTP("127.0.0.1", 25, timeout=60) as s:
-            s.send_message(msg)
-    tmp = state_path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(state, f, indent=1, sort_keys=True)
-    os.replace(tmp, state_path)
-    print(f"{len(news)} new; mail {'sent' if msg else 'not needed'}")
+    write(os.path.join(rdir, "latest.txt"), latest)
+    if dated:
+        path = os.path.join(rdir, f"{day}.txt")
+        prior = open(path, encoding="utf-8").read() + "\n" if os.path.exists(path) else ""
+        write(path, prior + dated)
+    write(os.path.join(rdir, "notice"), notice)
+    write(state_path, json.dumps(state, indent=1, sort_keys=True))
+    print(f"{len(news)} new; {len(state['pending'])} pending in the notice")
     return 0
 
 

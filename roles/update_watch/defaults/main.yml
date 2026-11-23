@@ -3,9 +3,9 @@
 #
 # Once a day it asks every substrate host what updates it has waiting, asks the
 # Omada controller about its devices' firmware, compares OPNsense's published
-# releases with the version discovery last saw on the core router, and mails
-# the operator what is new. It runs as its own account with credentials that
-# can read and nothing else:
+# releases with the version discovery last saw on the core router, and writes
+# down in a report what is new, which a banner at login points to. It runs as
+# its own account with credentials that can read and nothing else:
 #   - an SSH key pinned on every host to one read-only program (update_check);
 #   - a view-only Omada Open API client;
 #   - nothing at all for the core router, whose only firmware privilege could
@@ -22,25 +22,25 @@ update_watch_config: /etc/deevnet/update-watch.json
 update_watch_state: "{{ update_watch_home }}/state.json"
 
 # The hosts it asks, over SSH. The watcher checks itself directly. Hypervisors
-# are asked but never mailed about: Proxmox VE mails its own waiting updates
-# (CHG-0079).
+# are asked and listed, but are not news: Proxmox VE notifies its own waiting
+# updates (CHG-0079).
 update_watch_targets: "{{ (groups['management_plane'] | default([]))
                           + (groups['builder'] | default([]))
                           + (groups['hypervisors'] | default([])) }}"
-update_watch_unmailed_groups: [hypervisors]
+update_watch_quiet_groups: [hypervisors]
 
-# Mail, through this host's own Postfix, delivering directly as the
-# hypervisors' does. Empty means the role stops and says so.
-update_watch_mail_to: ""
-update_watch_mail_from: "deevnet-watch@{{ inventory_hostname }}.{{ deevnet_substrate }}.{{ deevnet_root_domain }}"
+# Where the reports go, and the banner that points to them. Nothing is mailed:
+# a mobile site's network may block mail, and the report needs no network.
+update_watch_report_dir: /srv/updates
+update_watch_profile_script: /etc/profile.d/deevnet-updates.sh
 
-# A waiting update is mailed the day it is first seen, and again after this
-# many days if it is still waiting.
+# A waiting update is news the day it is first seen, and again after this many
+# days if it is still waiting.
 update_watch_remind_days: 30
 
 # The Omada controller and a VIEW-ONLY Open API client (role: viewer, created
 # by the Owner in the controller). Empty client id means devices are not
-# checked, and the mail says so.
+# checked, and the report says so.
 update_watch_omada_host: "{{ (groups['network_controllers'] | default([]) | intersect(groups['management_plane'] | default([]))) | first | default('') }}"
 update_watch_omada_url: "{{ 'https://' ~ hostvars[update_watch_omada_host]['ansible_host'] ~ ':8043' if update_watch_omada_host else '' }}"
 update_watch_omada_verify: "{{ site_verify_omada | default(false) }}"
