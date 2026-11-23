@@ -1,6 +1,6 @@
 .PHONY: help default pve-nag deps deps-force build check install-dev install-user rebuild apply list \
         publish clean-deps clean-project deep-clean all bootstrap-auth core-auth \
-        update-watch update-watch-now update-watch-dry-run
+        update-watch update-watch-now update-watch-dry-run update-watch-ack
 
 # ---------- Config ----------
 COLLECTION_NAME ?= deevnet-builder
@@ -73,10 +73,13 @@ help:
 "      (deevnet.mgmt's site.yml --tags update_check puts the check on the service VMs)" \
 "" \
 "  update-watch-now" \
-"      Run the update watcher once now, mailing anything new, and show its log" \
+"      Run the update watcher once now, writing its report in /srv/updates, and show its log" \
 "" \
 "  update-watch-dry-run" \
-"      Print the mail the update watcher would send, without sending it or changing its state"
+"      Print the notice and report the update watcher would write, without writing anything" \
+"" \
+"  update-watch-ack" \
+"      Clear the login banner: the update report has been read (it returns when something is new)"
 
 # ---------- Deps ----------
 $(DEPS_STAMP): $(REQS)
@@ -174,3 +177,6 @@ update-watch-now:
 
 update-watch-dry-run:
 	sudo -u deevnet-watch /usr/local/sbin/deevnet-update-watch --config /etc/deevnet/update-watch.json --dry-run
+
+update-watch-ack:
+	sudo -u deevnet-watch /usr/local/sbin/deevnet-update-watch --config /etc/deevnet/update-watch.json --ack

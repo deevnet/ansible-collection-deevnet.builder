@@ -1,0 +1,8 @@
+# {{ ansible_managed }}
+# The update watcher's banner (Patch Management v2): in an interactive login
+# shell, show what is new and not yet acknowledged. Silent when there is none.
+if [ -n "${PS1:-}" ] && [ -s {{ update_watch_report_dir }}/notice ]; then
+    printf '\n'
+    cat {{ update_watch_report_dir }}/notice
+    printf '\n'
+fi
