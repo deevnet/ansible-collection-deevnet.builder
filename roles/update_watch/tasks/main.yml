@@ -1,0 +1,188 @@
+---
+- name: Fail early without somewhere to send the mail
+  ansible.builtin.assert:
+    that:
+      - update_watch_mail_to | length > 0
+    fail_msg: >-
+      update_watch_mail_to is empty. Set it in inventory (group_vars for
+      update_watchers), from the vault.
+    quiet: true
+  tags: [update_watch]
+
+# --- Mail ---------------------------------------------------------------------
+
+- name: Install Postfix
+  ansible.builtin.dnf:
+    name: postfix
+    state: present
+  tags: [update_watch]
+
+# Send-only: it listens on loopback for this host's own mail and delivers it
+# directly, as the hypervisors' Postfix does. It accepts nothing from the
+# network and is nobody's relay.
+- name: Configure Postfix to send only
+  ansible.builtin.lineinfile:
+    path: /etc/postfix/main.cf
+    regexp: '^#?\s*{{ item.key }}\s*='
+    line: "{{ item.key }} = {{ item.value }}"
+  loop:
+    - {key: inet_interfaces, value: loopback-only}
+    - {key: inet_protocols, value: ipv4}
+    - {key: myhostname, value: "{{ inventory_hostname }}.{{ deevnet_substrate }}.{{ deevnet_root_domain }}"}
+    - {key: mydestination, value: ""}
+    - {key: mynetworks, value: 127.0.0.0/8}
+    - {key: relayhost, value: ""}
+  loop_control:
+    label: "{{ item.key }}"
+  notify: Restart postfix
+  # In check mode Postfix is not really installed yet.
+  ignore_errors: "{{ ansible_check_mode }}"
+  tags: [update_watch]
+
+- name: Postfix is running
+  ansible.builtin.systemd_service:
+    name: postfix
+    enabled: true
+    state: started
+  ignore_errors: "{{ ansible_check_mode }}"
+  tags: [update_watch]
+
+# --- The account and its key ----------------------------------------------------
+
+- name: Create the watcher's account
+  ansible.builtin.user:
+    name: "{{ update_watch_user }}"
+    home: "{{ update_watch_home }}"
+    shell: /sbin/nologin
+    password: "!"
+    system: true
+    create_home: true
+  tags: [update_watch]
+
+- name: Create the watcher's .ssh directory
+  ansible.builtin.file:
+    path: "{{ update_watch_home }}/.ssh"
+    state: directory
+    owner: "{{ update_watch_user }}"
+    group: "{{ update_watch_user }}"
+    mode: "0700"
+  tags: [update_watch]
+
+# Made here and never copied anywhere: a rebuilt Builder makes a new one, and
+# the next run of update_check pins the new public half on every host.
+- name: Make the watcher's key
+  ansible.builtin.command:
+    argv: [ssh-keygen, -q, -t, ed25519, -N, "", -C, "{{ update_watch_user }}@{{ inventory_hostname }}", -f, "{{ update_watch_key }}"]
+    creates: "{{ update_watch_key }}"
+  tags: [update_watch]
+
+- name: The key is the watcher's alone
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    owner: "{{ update_watch_user }}"
+    group: "{{ update_watch_user }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - {path: "{{ update_watch_key }}", mode: "0600"}
+    - {path: "{{ update_watch_key }}.pub", mode: "0644"}
+  loop_control:
+    label: "{{ item.path }}"
+  ignore_errors: "{{ ansible_check_mode }}"
+  tags: [update_watch]
+
+- name: Read the watcher's public key
+  ansible.builtin.slurp:
+    src: "{{ update_watch_key }}.pub"
+  register: _update_watch_pub
+  # In check mode the key is not really made yet.
+  ignore_errors: "{{ ansible_check_mode }}"
+  tags: [update_watch]
+
+- name: Create /etc/deevnet
+  ansible.builtin.file:
+    path: /etc/deevnet
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  tags: [update_watch]
+
+- name: Publish the public key for update_check
+  ansible.builtin.copy:
+    content: "{{ (_update_watch_pub.content | default('')) | b64decode }}"
+    dest: "{{ update_watch_public_key_file }}"
+    owner: root
+    group: root
+    mode: "0644"
+  tags: [update_watch]
+
+# Each target's host key is learned on first contact and then held: a host
+# that changes key afterwards is refused and reported, not trusted again.
+- name: The watcher's known_hosts exists
+  ansible.builtin.file:
+    path: "{{ update_watch_home }}/.ssh/known_hosts"
+    state: touch
+    owner: "{{ update_watch_user }}"
+    group: "{{ update_watch_user }}"
+    mode: "0600"
+    access_time: preserve
+    modification_time: preserve
+  tags: [update_watch]
+
+# --- What it reads: discovery's reports ---------------------------------------
+
+- name: Discovery's reports are readable by the watcher
+  ansible.builtin.file:
+    path: "{{ update_watch_discovery_dir }}"
+    state: directory
+    owner: "{{ update_watch_discovery_owner }}"
+    group: "{{ update_watch_user }}"
+    mode: "2750"
+  # In check mode the watcher's group does not exist yet.
+  ignore_errors: "{{ ansible_check_mode }}"
+  tags: [update_watch]
+
+# --- The watcher ------------------------------------------------------------------
+
+- name: Install the watcher
+  ansible.builtin.copy:
+    src: deevnet-update-watch
+    dest: "{{ update_watch_script }}"
+    owner: root
+    group: root
+    mode: "0755"
+  tags: [update_watch]
+
+- name: Write the watcher's configuration
+  ansible.builtin.template:
+    src: update-watch.json.j2
+    dest: "{{ update_watch_config }}"
+    owner: root
+    group: "{{ update_watch_user }}"
+    mode: "0640"
+    validate: "python3 -c \"import json,sys; json.load(open('%s'))\""
+  no_log: true
+  ignore_errors: "{{ ansible_check_mode }}"
+  tags: [update_watch]
+
+- name: Install the watcher's units
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - deevnet-update-watch.service
+    - deevnet-update-watch.timer
+  register: _update_watch_units
+  tags: [update_watch]
+
+- name: The timer is running
+  ansible.builtin.systemd_service:
+    name: deevnet-update-watch.timer
+    daemon_reload: "{{ _update_watch_units is changed }}"
+    enabled: true
+    state: "{{ 'restarted' if _update_watch_units is changed else 'started' }}"
+  ignore_errors: "{{ ansible_check_mode }}"
+  tags: [update_watch]

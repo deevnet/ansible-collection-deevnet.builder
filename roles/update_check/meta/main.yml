@@ -1,0 +1,7 @@
+---
+galaxy_info:
+  role_name: update_check
+  description: The read-only account and check the update watcher logs in to (Patch Management v2)
+  license: MIT
+  min_ansible_version: "2.14"
+dependencies: []

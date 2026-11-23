@@ -1,0 +1,7 @@
+---
+galaxy_info:
+  role_name: update_watch
+  description: The daily update watcher on the Builder, which mails the operator what is waiting (Patch Management v2)
+  license: MIT
+  min_ansible_version: "2.14"
+dependencies: []

@@ -1,0 +1,38 @@
+#!/bin/sh
+# deevnet-update-check - what updates are waiting on this host, read-only.
+#
+# Run by the update watcher on the Builder over SSH, as the deevnet-watch
+# account, whose key is pinned to this program (command=, restrict, from=). It
+# never reads SSH_ORIGINAL_COMMAND: whatever the client asks for, this runs.
+#
+# It prints raw sections, each opened by a "### <name>" line; the watcher
+# parses them. It reads only the package manager's cache, which the host's own
+# timers keep fresh (dnf-makecache on Fedora, pve-daily-update on Proxmox VE),
+# so it downloads nothing and changes nothing. No root, no sudo.
+
+export LC_ALL=C
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+
+echo "### os"
+cat /etc/os-release
+
+if command -v dnf >/dev/null 2>&1; then
+    out=$(dnf -C -q check-upgrade 2>&1)
+    rc=$?
+    echo "### dnf-check-upgrade"
+    echo "rc=$rc"
+    printf '%s\n' "$out"
+    echo "### dnf-security"
+    dnf -C -q advisory list --updates --security --json 2>/dev/null || echo "[]"
+    echo "### cache-age"
+    find /var/cache/libdnf5 -name repomd.xml -printf '%T@\n' 2>/dev/null | sort -n | tail -n 1
+elif command -v apt >/dev/null 2>&1; then
+    echo "### apt-upgradable"
+    apt list --upgradable 2>/dev/null
+    echo "### cache-age"
+    find /var/lib/apt/lists -maxdepth 1 -name '*Packages' -printf '%T@\n' 2>/dev/null | sort -n | tail -n 1
+else
+    echo "### error"
+    echo "no dnf or apt on this host"
+fi
+exit 0

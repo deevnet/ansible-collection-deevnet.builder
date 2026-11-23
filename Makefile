@@ -1,5 +1,6 @@
 .PHONY: help default pve-nag deps deps-force build check install-dev install-user rebuild apply list \
-        publish clean-deps clean-project deep-clean all bootstrap-auth core-auth
+        publish clean-deps clean-project deep-clean all bootstrap-auth core-auth \
+        update-watch update-watch-now update-watch-dry-run
 
 # ---------- Config ----------
 COLLECTION_NAME ?= deevnet-builder
@@ -65,7 +66,17 @@ help:
 "      Transition to core router-authoritative mode (TFTP only on bootstrap)" \
 "" \
 "  pve-nag" \
-"      Turn off the Proxmox web UI subscription popup on every hypervisor"
+"      Turn off the Proxmox web UI subscription popup on every hypervisor" \
+"" \
+"  update-watch" \
+"      Deploy the update watcher on the Builder and its read-only check on the Builder VMs and hypervisors" \
+"      (deevnet.mgmt's site.yml --tags update_check puts the check on the service VMs)" \
+"" \
+"  update-watch-now" \
+"      Run the update watcher once now, mailing anything new, and show its log" \
+"" \
+"  update-watch-dry-run" \
+"      Print the mail the update watcher would send, without sending it or changing its state"
 
 # ---------- Deps ----------
 $(DEPS_STAMP): $(REQS)
@@ -150,3 +161,16 @@ core-auth: install-dev
 pve-nag: install-dev
 	@ANSIBLE_COLLECTIONS_PATH="$(PROJECT_COLLECTIONS_PATH):$(USER_COLLECTIONS_PATH)" \
 	  ansible-playbook playbooks/site.yml --limit hypervisors --tags nag
+
+# ---------- Update watcher (Patch Management v2) ----------
+update-watch: install-dev
+	@ANSIBLE_COLLECTIONS_PATH="$(PROJECT_COLLECTIONS_PATH):$(USER_COLLECTIONS_PATH)" \
+	  ansible-playbook playbooks/site.yml --limit 'update_watchers:builder:hypervisors' --tags update_watch,update_check
+
+# These run the watcher on this host, which is the Builder.
+update-watch-now:
+	sudo systemctl start deevnet-update-watch.service
+	sudo journalctl -u deevnet-update-watch.service -n 20 --no-pager
+
+update-watch-dry-run:
+	sudo -u deevnet-watch /usr/local/sbin/deevnet-update-watch --config /etc/deevnet/update-watch.json --dry-run

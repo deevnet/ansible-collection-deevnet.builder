@@ -1,0 +1,60 @@
+---
+# update_watch - the daily update watcher on the Builder (Patch Management v2).
+#
+# Once a day it asks every substrate host what updates it has waiting, asks the
+# Omada controller about its devices' firmware, compares OPNsense's published
+# releases with the version discovery last saw on the core router, and mails
+# the operator what is new. It runs as its own account with credentials that
+# can read and nothing else:
+#   - an SSH key pinned on every host to one read-only program (update_check);
+#   - a view-only Omada Open API client;
+#   - nothing at all for the core router, whose only firmware privilege could
+#     also install updates: the router is watched upstream instead.
+
+update_watch_user: deevnet-watch
+update_watch_home: /var/lib/deevnet-watch
+update_watch_key: "{{ update_watch_home }}/.ssh/id_ed25519"
+# The public half, where update_check reads it on the control node.
+update_watch_public_key_file: /etc/deevnet/update-watch.pub
+
+update_watch_script: /usr/local/sbin/deevnet-update-watch
+update_watch_config: /etc/deevnet/update-watch.json
+update_watch_state: "{{ update_watch_home }}/state.json"
+
+# The hosts it asks, over SSH. The watcher checks itself directly. Hypervisors
+# are asked but never mailed about: Proxmox VE mails its own waiting updates
+# (CHG-0079).
+update_watch_targets: "{{ (groups['management_plane'] | default([]))
+                          + (groups['builder'] | default([]))
+                          + (groups['hypervisors'] | default([])) }}"
+update_watch_unmailed_groups: [hypervisors]
+
+# Mail, through this host's own Postfix, delivering directly as the
+# hypervisors' does. Empty means the role stops and says so.
+update_watch_mail_to: ""
+update_watch_mail_from: "deevnet-watch@{{ inventory_hostname }}.{{ deevnet_substrate }}.{{ deevnet_root_domain }}"
+
+# A waiting update is mailed the day it is first seen, and again after this
+# many days if it is still waiting.
+update_watch_remind_days: 30
+
+# The Omada controller and a VIEW-ONLY Open API client (role: viewer, created
+# by the Owner in the controller). Empty client id means devices are not
+# checked, and the mail says so.
+update_watch_omada_host: "{{ (groups['network_controllers'] | default([]) | intersect(groups['management_plane'] | default([]))) | first | default('') }}"
+update_watch_omada_url: "{{ 'https://' ~ hostvars[update_watch_omada_host]['ansible_host'] ~ ':8043' if update_watch_omada_host else '' }}"
+update_watch_omada_verify: "{{ site_verify_omada | default(false) }}"
+update_watch_omada_client_id: ""
+update_watch_omada_client_secret: ""
+
+# The core router, watched upstream: OPNsense's release tags, against the
+# version in the newest discovery report.
+update_watch_opnsense_tags_url: https://api.github.com/repos/opnsense/core/tags?per_page=50
+update_watch_discovery_dir: /srv/discovery
+# Discovery runs as the operator on the control node (the Builder), so the
+# directory stays theirs; the watcher reads it through its group (setgid).
+update_watch_discovery_owner: "{{ lookup('ansible.builtin.env', 'USER') }}"
+
+# When it runs.
+update_watch_calendar: daily
+update_watch_random_delay: 1h
