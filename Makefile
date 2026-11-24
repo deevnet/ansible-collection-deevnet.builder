@@ -1,6 +1,6 @@
 .PHONY: help default pve-nag deps deps-force build check install-dev install-user rebuild apply list \
         publish clean-deps clean-project deep-clean all bootstrap-auth core-auth \
-        update-watch update-watch-now update-watch-dry-run update-watch-ack \
+        update-watch update-watch-now update-watch-show update-watch-dry-run update-watch-ack \
         health-watch health-watch-now health-watch-dry-run \
         patch-mcp patch-mcp-test patch-mcp-register
 
@@ -79,6 +79,9 @@ help:
 "" \
 "  update-watch-dry-run" \
 "      Print the notice and report the update watcher would write, without writing anything" \
+"" \
+"  update-watch-show" \
+"      Show the scoreboard of updates waiting now, from the last run, whether or not anything is new" \
 "" \
 "  update-watch-ack" \
 "      Clear the login banner: the update report has been read (it returns when something is new)" \
@@ -198,6 +201,12 @@ update-watch-now:
 
 update-watch-dry-run:
 	sudo -u deevnet-watch /usr/local/sbin/deevnet-update-watch --config /etc/deevnet/update-watch.json --dry-run
+
+# The scoreboard leads latest.txt on every run; the banner shows it only while
+# there is news. This shows it any time, with when it was checked.
+update-watch-show:
+	@sed -n '1,/^Total/p' /srv/updates/latest.txt
+	@grep '^Checked' /srv/updates/latest.txt
 
 update-watch-ack:
 	sudo -u deevnet-watch /usr/local/sbin/deevnet-update-watch --config /etc/deevnet/update-watch.json --ack

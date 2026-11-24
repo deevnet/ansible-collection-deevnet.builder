@@ -31,6 +31,9 @@ news. Nothing leaves the Builder: no mail, no network but the questions.
 
 --dry-run prints what it would write and leaves everything alone.
 --ack     clears the notice: the operator has read the report.
+
+A host it stops asking (made inactive, or gone from inventory) takes its
+unacknowledged news with it, so the banner never reports a system that is gone.
 """
 import argparse
 import datetime
@@ -322,6 +325,19 @@ def evaluate(state, hosts, extras, failures, now, remind_days):
     return news
 
 
+def forget_unwatched(state, names):
+    """Drop the unacknowledged news of hosts this watcher asked last run and no
+    longer asks (made inactive, or removed from inventory): news about a system
+    that is gone is not news. The core router and Omada's devices were never
+    asked, so their news stays. Returns the hosts forgotten."""
+    gone = set(state.get("targets") or []) - set(names)
+    if gone:
+        state["pending"] = [p for p in state.get("pending") or []
+                            if p["line"].split(":", 1)[0] not in gone]
+    state["targets"] = sorted(names)
+    return sorted(gone)
+
+
 def summary(hosts, unmailed, extras, failures, notes=()):
     lines = []
     for name, h in sorted({**hosts, **unmailed}.items()):
@@ -560,6 +576,7 @@ def main():
         if err:
             failures[source] = err
 
+    forgotten = forget_unwatched(state, [t["name"] for t in cfg["targets"]])
     news = evaluate(state, hosts, extras, failures, now, int(cfg.get("remind_days", 30)))
     day = now.strftime("%Y-%m-%d")
     state.setdefault("pending", []).extend({"date": day, "line": x} for x in news)
@@ -583,6 +600,8 @@ def main():
         write(path, prior + dated)
     write(os.path.join(rdir, "notice"), notice)
     write(state_path, json.dumps(state, indent=1, sort_keys=True))
+    if forgotten:
+        print(f"no longer watched, their news dropped: {', '.join(forgotten)}")
     print(f"{len(news)} new; {len(state['pending'])} pending in the notice")
     return 0
 
