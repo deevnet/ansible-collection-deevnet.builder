@@ -3,9 +3,10 @@
   "self": {{ inventory_hostname | to_json }},
   "targets": [
 {% for h in update_watch_targets | unique %}
-    {"name": {{ h | to_json }}, "address": {{ (inventory_hostname if h == inventory_hostname else hostvars[h]['ansible_host']) | to_json }}, "news": {{ (h not in (update_watch_quiet_groups | map('extract', groups) | flatten)) | to_json }}}{{ '' if loop.last else ',' }}
+    {"name": {{ h | to_json }}, "address": {{ (inventory_hostname if h == inventory_hostname else hostvars[h]['ansible_host']) | to_json }}, "news": {{ (h not in (update_watch_quiet_groups | map('extract', groups) | flatten)) | to_json }}, "kind": {{ (update_watch_kinds | selectattr('group', 'in', hostvars[h]['group_names']) | map(attribute='label') | list | last | default('Other')) | to_json }}}{{ '' if loop.last else ',' }}
 {% endfor %}
   ],
+  "kinds": {{ update_watch_kinds | map(attribute='label') | list | to_json }},
   "ssh_user": {{ update_watch_user | to_json }},
   "ssh_key": {{ update_watch_key | to_json }},
   "check": {{ update_watch_check | to_json }},

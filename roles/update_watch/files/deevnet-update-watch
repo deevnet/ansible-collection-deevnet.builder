@@ -17,8 +17,10 @@ It writes, in report_dir:
                      updates waiting that had none, a new OPNsense release or
                      device firmware, a system that stopped answering, and a
                      reminder for anything waiting longer than remind_days;
-  notice             a few lines a login banner shows while anything new has
-                     not been acknowledged. Empty when there is nothing.
+  notice             a scoreboard a login banner shows while anything new has
+                     not been acknowledged: per system, how many updates wait,
+                     major, minor and security, the systems with news marked
+                     "new". Empty when there is nothing new.
 Ordinary package churn on a host already behind is in latest.txt but is not
 news. Nothing leaves the Builder: no mail, no network but the questions.
 
@@ -67,7 +69,10 @@ def nevra_name(nevra):
 
 
 def parse_check(text, now):
-    """deevnet-watch-check updates' output -> {os, updates: [{name, version, security}], cache_days, error}."""
+    """deevnet-watch-check updates' output -> {os, updates: [{name, version, installed, security}], cache_days, error}.
+
+    installed is the version the update replaces, or "" when the host's check
+    does not say (an older check, or a package new to the host)."""
     s = sections(text)
     osr = kv(s.get("os"))
     res = {"os": osr.get("PRETTY_NAME", ""), "updates": [], "cache_days": None, "error": s.get("error", "").strip()}
@@ -81,20 +86,28 @@ def parse_check(text, now):
             secure = {nevra_name(a.get("nevra", "")) for a in json.loads(s.get("dnf-security") or "[]")}
         except ValueError:
             pass
+        installed = {}
+        for line in (s.get("rpm-installed") or "").splitlines():
+            f = line.split()
+            if len(f) == 2:
+                installed[f[0]] = f[1]  # name.arch -> epoch:version-release
         for line in lines[1:]:
             if not line.strip():
                 break  # "Obsoleting packages" follows a blank line
             f = line.split()
             if len(f) == 3:
                 name = f[0].rsplit(".", 1)[0]
-                res["updates"].append({"name": name, "version": f[1], "security": name in secure})
+                res["updates"].append({"name": name, "version": f[1], "installed": installed.get(f[0], ""),
+                                       "security": name in secure})
     elif "apt-upgradable" in s:
         for line in s["apt-upgradable"].splitlines():
             f = line.split()
             if "/" not in (f[0] if f else "") or len(f) < 2:
                 continue  # "Listing..." and blanks
             name, suites = f[0].split("/", 1)
-            res["updates"].append({"name": name, "version": f[1], "security": "-security" in suites})
+            m = re.search(r"\[upgradable from: ([^\]]+)\]", line)
+            res["updates"].append({"name": name, "version": f[1], "installed": m.group(1) if m else "",
+                                   "security": "-security" in suites})
     age = (s.get("cache-age") or "").strip()
     if age:
         try:
@@ -334,7 +347,7 @@ def headline(hosts, extras, failures):
 
 
 def report(cfg, title, news, hosts, unmailed, extras, failures, now, notes=()):
-    body = [title, ""]
+    body = [title, "", *scoreboard(cfg, {**hosts, **unmailed}, extras, failures), ""]
     if news:
         body += ["New:", *[f"  {x}" for x in news], ""]
     body += ["Everything waiting now:", *summary(hosts, unmailed, extras, failures, notes), "",
@@ -343,19 +356,106 @@ def report(cfg, title, news, hosts, unmailed, extras, failures, now, notes=()):
     return "\n".join(body)
 
 
-def notice_text(state, report_dir):
+# --- The scoreboard ----------------------------------------------------------------
+
+
+def upstream(v):
+    """(epoch, first version field): "1:1.54.3-3.fc43" -> ("1", "1"); "7.3.4-100.fc43" -> ("0", "7")."""
+    v = v.strip()
+    epoch, _, rest = v.rpartition(":") if re.match(r"\d+:", v) else ("0", "", v)
+    m = re.match(r"[0-9]+|[A-Za-z]+", rest)
+    return epoch or "0", (m.group(0) if m else rest)
+
+
+def classify(installed, version):
+    """'major' when the epoch or the first version field changes, 'minor' for any
+    other update, None when the installed version is not known. A first field of
+    four or more digits is a date or a year (linux-firmware 20251021, tzdata
+    2025b), which moves every year without meaning more: minor."""
+    if not installed:
+        return None
+    (e1, f1), (e2, f2) = upstream(installed), upstream(version)
+    if e1 != e2:
+        return "major"
+    if f1 != f2 and not (len(f1) >= 4 and f1.isdigit() and len(f2) >= 4 and f2.isdigit()):
+        return "major"
+    return "minor"
+
+
+def tally(updates):
+    t = {"major": 0, "minor": 0, "security": 0, "unknown": 0}
+    for u in updates:
+        t[classify(u.get("installed", ""), u["version"]) or "unknown"] += 1
+        t["security"] += bool(u["security"])
+    return t
+
+
+def scoreboard(cfg, results, extras, failures, marked=frozenset()):
+    """The table of what waits where: a row per system, grouped by kind.
+
+    Major and Minor count every update by how far it moves (they add up to all
+    of them); Security counts those that fix a security advisory, of either.
+    results: {name: parsed check} for every host that answered
+    marked:  names with something not yet acknowledged, flagged "new"
+    """
+    w = max([len(t["name"]) for t in cfg["targets"]] + [len(e["host"]) for e in extras] + [13]) + 2
+    head = f"{'':<{w}}{'Major':>6}{'Minor':>7}{'Security':>10}"
+    lines, total, unknown = [head], {"major": 0, "minor": 0, "security": 0}, 0
+
+    def cells(t):
+        return "".join(f"{(t[k] or '-')!s:>{n}}" for k, n in (("major", 6), ("minor", 7), ("security", 10)))
+
+    def flag(name):
+        return "  new" if name in marked else "     "
+
+    kinds = list(cfg.get("kinds") or [])
+    for t in cfg["targets"]:
+        if t.get("kind", "Other") not in kinds:
+            kinds.append(t.get("kind", "Other"))
+    for kind in kinds:
+        rows = [t["name"] for t in cfg["targets"] if t.get("kind", "Other") == kind]
+        if not rows:
+            continue
+        lines.append(kind)
+        for name in rows:
+            if name in failures:
+                lines.append(f"  {name:<{w - 2}}{'no answer':>23}{flag(name)}".rstrip())
+                continue
+            if name not in results:
+                continue
+            t = tally(results[name]["updates"])
+            for k in total:
+                total[k] += t[k]
+            unknown += t["unknown"]
+            extra = f"  ({t['unknown']} unsorted)" if t["unknown"] else ""
+            lines.append(f"  {name:<{w - 2}}{cells(t)}{flag(name)}{extra}".rstrip())
+    net = [e for e in extras] + [{"host": n} for n in ("OPNsense releases", "Omada") if n in failures]
+    if net:
+        lines.append("Network")
+        for e in net:
+            if "item" not in e:
+                lines.append(f"  {e['host']:<{w - 2}}{'not checked':>23}{flag(e['host'])}".rstrip())
+                continue
+            major = e.get("kind") == "new release line" or (
+                e.get("kind") != "point release" and classify(e["current"], e["latest"]) == "major")
+            t = {"major": int(major), "minor": int(not major), "security": 0}
+            for k in total:
+                total[k] += t[k]
+            lines.append(f"  {e['host']:<{w - 2}}{cells(t)}{flag(e['host'])}  {e['item']} {e['latest']}")
+    lines.append(f"{'Total':<{w}}{cells(total)}")
+    if unknown:
+        lines.append(f"{unknown} not sorted into major or minor: the host's check does not say what is installed")
+    return lines
+
+
+def notice_text(state, report_dir, board=()):
     """The banner, from what is pending: empty when nothing is."""
     pending = state.get("pending") or []
     if not pending:
         return ""
-    n_sec = sum(1 for p in pending if "security" in p["line"])
     first = min(p["date"] for p in pending)
-    lines = [f"Deevnet updates: {len(pending)} new since {first}"
-             + (f" ({n_sec} about security)" if n_sec else ""),
-             *[f"  {p['line']}"[:100] + ("..." if len(p["line"]) > 98 else "") for p in pending[:6]]]
-    if len(pending) > 6:
-        lines.append(f"  ... and {len(pending) - 6} more")
-    lines += [f"Read {report_dir}/latest.txt; clear this with: make update-watch-ack (deevnet.builder)"]
+    lines = [f"Deevnet updates waiting ({len(pending)} new since {first})", "", *board, "",
+             f"Read {report_dir}/latest.txt; clear this with: make update-watch-ack (deevnet.builder)"]
     width = max(len(x) for x in lines)
     bar = "=" * min(width, 100)
     return "\n".join([bar, *lines, bar]) + "\n"
@@ -422,7 +522,8 @@ def main():
     title = headline(hosts, extras, failures)
     latest = report(cfg, title, [], hosts, unmailed, extras, failures, now, notes)
     dated = report(cfg, title, news, hosts, unmailed, extras, failures, now, notes) if news else None
-    notice = notice_text(state, rdir)
+    marked = {p["line"].split(":", 1)[0] for p in state["pending"]}
+    notice = notice_text(state, rdir, scoreboard(cfg, {**hosts, **unmailed}, extras, failures, marked))
 
     if a.dry_run:
         print(f"--- {rdir}/notice\n{notice or '(empty)'}")

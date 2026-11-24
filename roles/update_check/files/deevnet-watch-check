@@ -10,7 +10,8 @@
 #
 #   updates (or nothing)  what updates are waiting, from the package manager's
 #                         cache, which the host's own timers keep fresh
-#                         (dnf-makecache on Fedora, pve-daily-update on Proxmox VE).
+#                         (dnf-makecache on Fedora, pve-daily-update on Proxmox VE),
+#                         and the installed versions they would replace.
 #                         Asked once a day by the update watcher.
 #   health                the system's state and its failed systemd units, one per
 #                         line. Asked every few minutes by the health watcher.
@@ -39,6 +40,8 @@ updates() {
         printf '%s\n' "$out"
         echo "### dnf-security"
         dnf -C -q advisory list --updates --security --json 2>/dev/null || echo "[]"
+        echo "### rpm-installed"
+        rpm -qa --qf '%{NAME}.%{ARCH} %{EPOCHNUM}:%{VERSION}-%{RELEASE}\n' 2>/dev/null
         echo "### cache-age"
         find /var/cache/libdnf5 -name repomd.xml -printf '%T@\n' 2>/dev/null | sort -n | tail -n 1
     elif command -v apt >/dev/null 2>&1; then

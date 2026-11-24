@@ -32,6 +32,15 @@ update_watch_targets: "{{ (groups['management_plane'] | default([]))
                           + (groups['hypervisors'] | default([])) }}"
 update_watch_quiet_groups: [hypervisors]
 
+# The scoreboard's rows, by kind, shown in this order. A host goes under the
+# kind whose inventory group holds it; one in more than one (the Builder VMs are
+# management_plane too) goes under the later. The core router and Omada's
+# devices follow under "Network".
+update_watch_kinds:
+  - {label: Service VMs, group: management_plane}
+  - {label: Builder, group: builder}
+  - {label: Hypervisors, group: hypervisors}
+
 # Where the reports go, and the banner that points to them. Nothing is mailed:
 # a mobile site's network may block mail, and the report needs no network.
 update_watch_report_dir: /srv/updates
