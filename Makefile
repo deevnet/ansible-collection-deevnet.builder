@@ -1,6 +1,7 @@
 .PHONY: help default pve-nag deps deps-force build check install-dev install-user rebuild apply list \
         publish clean-deps clean-project deep-clean all bootstrap-auth core-auth \
-        update-watch update-watch-now update-watch-dry-run update-watch-ack
+        update-watch update-watch-now update-watch-dry-run update-watch-ack \
+        health-watch health-watch-now health-watch-dry-run
 
 # ---------- Config ----------
 COLLECTION_NAME ?= deevnet-builder
@@ -79,7 +80,17 @@ help:
 "      Print the notice and report the update watcher would write, without writing anything" \
 "" \
 "  update-watch-ack" \
-"      Clear the login banner: the update report has been read (it returns when something is new)"
+"      Clear the login banner: the update report has been read (it returns when something is new)" \
+"" \
+"  health-watch" \
+"      Deploy the health watcher on the Builder and its read-only check on the Builder VMs and hypervisors" \
+"      (deevnet.mgmt's site.yml --tags update_check puts the check on the service VMs)" \
+"" \
+"  health-watch-now" \
+"      Run the health watcher once now, writing /srv/health/latest.txt, and show it" \
+"" \
+"  health-watch-dry-run" \
+"      Print what the health watcher finds, without changing its state or the banner"
 
 # ---------- Deps ----------
 $(DEPS_STAMP): $(REQS)
@@ -180,3 +191,16 @@ update-watch-dry-run:
 
 update-watch-ack:
 	sudo -u deevnet-watch /usr/local/sbin/deevnet-update-watch --config /etc/deevnet/update-watch.json --ack
+
+# ---------- Health watcher (INC-0007) ----------
+# update_watch too: the health watcher uses its account.
+health-watch: install-dev
+	@ANSIBLE_COLLECTIONS_PATH="$(PROJECT_COLLECTIONS_PATH):$(USER_COLLECTIONS_PATH)" \
+	  ansible-playbook playbooks/site.yml --limit 'update_watchers:builder:hypervisors' --tags update_watch,health_watch,update_check
+
+health-watch-now:
+	sudo systemctl start deevnet-health-watch.service
+	cat /srv/health/latest.txt
+
+health-watch-dry-run:
+	sudo -u deevnet-watch /usr/local/sbin/deevnet-health-watch --config /etc/deevnet/health-watch.json --dry-run

@@ -1,0 +1,8 @@
+# {{ ansible_managed }}
+# The health watcher's banner (INC-0007): in an interactive login shell, show
+# what is wrong on the substrate now. Silent when nothing is; it clears itself.
+if [ -n "${PS1:-}" ] && [ -s {{ health_watch_report_dir }}/notice ]; then
+    printf '\n'
+    cat {{ health_watch_report_dir }}/notice
+    printf '\n'
+fi

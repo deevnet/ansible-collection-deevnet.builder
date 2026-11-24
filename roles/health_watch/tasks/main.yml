@@ -1,0 +1,73 @@
+---
+# The account and its key are the update watcher's (role update_watch, which
+# runs first in the same play): this role adds only the watcher itself.
+
+- name: Fail early without the update watcher's key
+  ansible.builtin.stat:
+    path: "{{ health_watch_key }}"
+  register: _health_watch_key_stat
+
+- name: The update watcher is deployed first
+  ansible.builtin.assert:
+    that:
+      - _health_watch_key_stat.stat.exists or ansible_check_mode
+    fail_msg: >-
+      {{ health_watch_key }} does not exist. The health watcher uses the update
+      watcher's account and key: run update_watch first (make health-watch
+      does).
+    quiet: true
+
+- name: The report directory, readable by the operator
+  ansible.builtin.file:
+    path: "{{ health_watch_report_dir }}"
+    state: directory
+    owner: "{{ health_watch_user }}"
+    group: "{{ health_watch_user }}"
+    mode: "0755"
+  ignore_errors: "{{ ansible_check_mode }}"
+
+- name: The banner at login
+  ansible.builtin.template:
+    src: deevnet-health.sh.j2
+    dest: "{{ health_watch_profile_script }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Install the watcher
+  ansible.builtin.copy:
+    src: deevnet-health-watch
+    dest: "{{ health_watch_script }}"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Write the watcher's configuration
+  ansible.builtin.template:
+    src: health-watch.json.j2
+    dest: "{{ health_watch_config }}"
+    owner: root
+    group: "{{ health_watch_user }}"
+    mode: "0640"
+    validate: "python3 -c \"import json,sys; json.load(open('%s'))\""
+  ignore_errors: "{{ ansible_check_mode }}"
+
+- name: Install the watcher's units
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - deevnet-health-watch.service
+    - deevnet-health-watch.timer
+  register: _health_watch_units
+
+- name: The timer is running
+  ansible.builtin.systemd_service:
+    name: deevnet-health-watch.timer
+    daemon_reload: "{{ _health_watch_units is changed }}"
+    enabled: true
+    state: "{{ 'restarted' if _health_watch_units is changed else 'started' }}"
+  ignore_errors: "{{ ansible_check_mode }}"

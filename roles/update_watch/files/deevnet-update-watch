@@ -3,7 +3,8 @@
 
 Once a day, as the deevnet-watch account on the Builder:
   - every substrate host is asked, over SSH, what updates it has waiting. The
-    key is pinned on each host to one read-only program, deevnet-update-check;
+    key is pinned on each host to one read-only program, deevnet-watch-check,
+    asked here for its "updates" check;
   - the Omada controller is asked, with a view-only client, whether its devices
     have newer firmware;
   - OPNsense's published releases are compared with the version the newest
@@ -66,7 +67,7 @@ def nevra_name(nevra):
 
 
 def parse_check(text, now):
-    """deevnet-update-check's output -> {os, updates: [{name, version, security}], cache_days, error}."""
+    """deevnet-watch-check updates' output -> {os, updates: [{name, version, security}], cache_days, error}."""
     s = sections(text)
     osr = kv(s.get("os"))
     res = {"os": osr.get("PRETTY_NAME", ""), "updates": [], "cache_days": None, "error": s.get("error", "").strip()}
@@ -109,11 +110,11 @@ def parse_check(text, now):
 def ask_host(cfg, target):
     """(text, error): the host's check output, or why it could not be had."""
     if target["name"] == cfg["self"]:
-        argv = [cfg["check"]]
+        argv = [cfg["check"], "updates"]
     else:
         argv = ["ssh", "-i", cfg["ssh_key"], "-o", "BatchMode=yes", "-o", "ConnectTimeout=15",
                 "-o", "StrictHostKeyChecking=accept-new", "-o", "IdentitiesOnly=yes",
-                f"{cfg['ssh_user']}@{target['address']}", "deevnet-update-check"]
+                f"{cfg['ssh_user']}@{target['address']}", "updates"]
     try:
         p = subprocess.run(argv, capture_output=True, text=True, timeout=180)
     except (OSError, subprocess.TimeoutExpired) as e:

@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "self": {{ inventory_hostname | to_json }},
+  "targets": [
+{% for h in health_watch_targets | unique %}
+    {"name": {{ h | to_json }}, "address": {{ (inventory_hostname if h == inventory_hostname else hostvars[h]['ansible_host']) | to_json }}}{{ '' if loop.last else ',' }}
+{% endfor %}
+  ],
+  "ssh_user": {{ health_watch_user | to_json }},
+  "ssh_key": {{ health_watch_key | to_json }},
+  "check": {{ health_watch_check | to_json }},
+  "ignore_units": {{ health_watch_ignore_units | to_json }},
+  "probes": {{ (health_watch_probes + (health_watch_omada_probe if health_watch_omada_host else [])) | to_json }},
+  "boot_grace": {{ health_watch_boot_grace | int }},
+  "threshold": {{ health_watch_threshold | int }},
+  "state": {{ health_watch_state | to_json }},
+  "report_dir": {{ health_watch_report_dir | to_json }}
+}

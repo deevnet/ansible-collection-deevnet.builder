@@ -2,15 +2,20 @@
 # update_check - the read-only account the update watcher logs in to
 # (Patch Management v2).
 #
-# The watcher on the Builder (role update_watch) asks every host, once a day,
-# what updates it has waiting. On each host it may run exactly one program,
-# deevnet-update-check, which reads the package manager's cache and prints it.
+# The watchers on the Builder ask every host what updates it has waiting (role
+# update_watch, once a day) and whether any unit has failed (role health_watch,
+# every few minutes). On each host their one key may run exactly one program,
+# deevnet-watch-check, which answers those questions read-only and refuses any
+# other.
 # The account has no sudo and no password, and its key works from the watcher's
 # address only.
 
 update_check_user: deevnet-watch
 update_check_home: /var/lib/deevnet-watch
-update_check_path: /usr/local/sbin/deevnet-update-check
+update_check_path: /usr/local/sbin/deevnet-watch-check
+# What the check was called before it answered more than one question.
+update_check_old_paths:
+  - /usr/local/sbin/deevnet-update-check
 
 # The watcher host, and the address its key may be used from. The watcher is
 # the one host in update_watchers.
@@ -21,3 +26,4 @@ update_check_from: "{{ hostvars[update_check_watcher]['ansible_host'] if update_
 # watcher. The control node is the Builder, which is the watcher, so it is read
 # from there. Its private half never leaves the watcher.
 update_check_public_key_file: /etc/deevnet/update-watch.pub
+
