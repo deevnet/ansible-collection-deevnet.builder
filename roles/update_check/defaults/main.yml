@@ -21,3 +21,10 @@ update_check_from: "{{ hostvars[update_check_watcher]['ansible_host'] if update_
 # watcher. The control node is the Builder, which is the watcher, so it is read
 # from there. Its private half never leaves the watcher.
 update_check_public_key_file: /etc/deevnet/update-watch.pub
+
+# The health watcher's check (role health_watch on the watcher, INC-0007): a
+# second program on the same account, reached through a second key pinned to
+# it. Its public half, published by health_watch on the watcher; until it
+# exists, only the update watcher's key is pinned.
+update_check_health_path: /usr/local/sbin/deevnet-health-check
+update_check_health_key_file: /etc/deevnet/health-watch.pub

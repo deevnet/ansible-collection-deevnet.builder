@@ -1,0 +1,260 @@
+#!/usr/bin/python3
+"""deevnet-health-watch - say when something running on the substrate stops (INC-0007).
+
+Every few minutes, as the deevnet-watch account on the Builder:
+  - every substrate host is asked, over SSH, for its failed systemd units. The
+    key is pinned on each host to one read-only program, deevnet-health-check,
+    and is not the update watcher's key;
+  - the Deevnet API is asked whether it is alive, and whether its database is
+    ready. OpenBao sealed is normal outside a work session (ADR-0042) and is
+    not a problem;
+  - the Omada controller is asked whether it is up and configured (INC-0002).
+
+A check that fails `threshold` runs in a row is raised; one that passes again
+is cleared. It writes, in report_dir:
+  latest.txt    every check and its result, every run;
+  events.log    one line each time a problem is raised or cleared;
+  notice        what is raised now, which a login banner shows. Empty when
+                nothing is: it clears itself, no acknowledgement needed.
+Nothing leaves the Builder.
+
+    deevnet-health-watch --config /etc/deevnet/health-watch.json [--dry-run]
+
+--dry-run asks everything, prints what it would write, and changes nothing.
+"""
+import argparse
+import concurrent.futures
+import datetime
+import json
+import os
+import ssl
+import subprocess
+import sys
+import urllib.error
+import urllib.request
+
+# --- Asking -----------------------------------------------------------------------
+
+
+def sections(text):
+    out, name = {}, None
+    for line in text.splitlines():
+        if line.startswith("### "):
+            name = line[4:].strip()
+            out[name] = []
+        elif name:
+            out[name].append(line)
+    return out
+
+
+def ask_host(cfg, target):
+    """(problems, error): {key: detail} for the host's failed units, or why it did not answer."""
+    if target["name"] == cfg["self"]:
+        argv = [cfg["check"]]
+    else:
+        argv = ["ssh", "-i", cfg["ssh_key"], "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
+                "-o", "StrictHostKeyChecking=accept-new", "-o", "IdentitiesOnly=yes",
+                f"{cfg['ssh_user']}@{target['address']}", "deevnet-health-check"]
+    try:
+        p = subprocess.run(argv, capture_output=True, text=True, timeout=45)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return None, str(e)[:200]
+    s = sections(p.stdout)
+    if p.returncode != 0 or "failed-units" not in s:
+        # ssh's last line says why; earlier ones are warnings.
+        last = [x for x in p.stderr.strip().splitlines() if x.strip()][-1:] or [f"exit {p.returncode}"]
+        return None, last[0][:200]
+    ignore = set(cfg.get("ignore_units", {}).get(target["name"], []))
+    units = [u.strip() for u in s["failed-units"] if u.strip() and u.strip() not in ignore]
+    return {f"{target['name']} unit {u}": "failed" for u in units}, None
+
+
+def http_get(url, verify=True, timeout=10):
+    """(status, body) or (None, error)."""
+    ctx = ssl.create_default_context()
+    if not verify:
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+    req = urllib.request.Request(url, headers={"User-Agent": "deevnet-health-watch"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as r:
+            return r.status, r.read(65536).decode("utf-8", "replace")
+    except urllib.error.HTTPError as e:
+        return e.code, e.read(65536).decode("utf-8", "replace")
+    except (OSError, ValueError) as e:
+        return None, str(getattr(e, "reason", e))[:200]
+
+
+def probe(p):
+    """None when the probe passes, else what was wrong."""
+    status, body = http_get(p["url"], p.get("verify", True))
+    if status is None:
+        return f"no answer: {body}"
+    kind = p["kind"]
+    if kind == "alive":
+        return None if status == 200 else f"answered {status}"
+    try:
+        doc = json.loads(body)
+    except ValueError:
+        return f"answered {status}, not JSON"
+    if kind == "api-ready":
+        # 503 with OpenBao sealed is the API waiting for a work session: normal.
+        db = doc.get("database")
+        return None if db == "ok" else f"database {db or 'unknown'} (answered {status})"
+    if kind == "omada":
+        r = doc.get("result") or {}
+        if status != 200:
+            return f"answered {status}"
+        return None if r.get("configured") is True else "up, but not configured"
+    return f"unknown probe kind {kind}"
+
+
+def ask_all(cfg):
+    """(checks, unknown): {key: detail or None}, and the hosts whose units are unknown."""
+    checks, unknown = {}, set()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+        hosts = {t["name"]: ex.submit(ask_host, cfg, t) for t in cfg["targets"]}
+        probes = {p["name"]: ex.submit(probe, p) for p in cfg.get("probes", [])}
+        for name, f in hosts.items():
+            problems, err = f.result()
+            checks[f"{name} answers"] = err and f"no answer: {err}"
+            if err:
+                unknown.add(name)
+            else:
+                checks.update(problems)
+        for name, f in probes.items():
+            checks[name] = f.result()
+    return checks, unknown
+
+
+# --- Deciding ---------------------------------------------------------------------
+
+
+def iso(dt):
+    return dt.astimezone().strftime("%Y-%m-%d %H:%M %Z")
+
+
+def evaluate(state, checks, unknown, now, threshold):
+    """Update state in place; return the events: [(word, key, detail)]."""
+    events, seen = [], set()
+    st = state.setdefault("checks", {})
+    for key, detail in checks.items():
+        seen.add(key)
+        rec = st.get(key)
+        if detail is None:
+            if rec and rec.get("raised"):
+                events.append(("CLEARED", key, f"after {rec['fails']} failed runs since {rec['since']}"))
+            st.pop(key, None)
+            continue
+        if not rec:
+            rec = st[key] = {"fails": 0, "since": iso(now), "raised": False}
+        rec["fails"] += 1
+        rec["detail"] = detail
+        if not rec["raised"] and rec["fails"] >= threshold:
+            rec["raised"] = True
+            events.append(("RAISED", key, detail))
+    # A unit that no longer fails is not listed at all: cleared, unless its host
+    # did not answer, when nothing is known and it stands as it was.
+    for key in list(st):
+        if key in seen:
+            continue
+        host = key.split(" unit ", 1)[0] if " unit " in key else None
+        if host in unknown:
+            continue
+        rec = st.pop(key)
+        if rec.get("raised"):
+            events.append(("CLEARED", key, f"after {rec['fails']} failed runs since {rec['since']}"))
+    return events
+
+
+def raised(state):
+    return sorted((k, r) for k, r in state.get("checks", {}).items() if r.get("raised"))
+
+
+def notice_text(state, report_dir):
+    up = raised(state)
+    if not up:
+        return ""
+    lines = [f"Deevnet health: {len(up)} problem{'s' if len(up) != 1 else ''}",
+             *[f"  {k}: {r['detail']} (since {r['since']})"[:100] for k, r in up[:8]]]
+    if len(up) > 8:
+        lines.append(f"  ... and {len(up) - 8} more")
+    lines.append(f"Details: {report_dir}/latest.txt. This clears itself when the check passes.")
+    bar = "!" * min(max(len(x) for x in lines), 100)
+    return "\n".join([bar, *lines, bar]) + "\n"
+
+
+def report(cfg, state, checks, unknown, now):
+    st = state.get("checks", {})
+    up = raised(state)
+    out = [f"Deevnet health, {iso(now)}: "
+           + (f"{len(up)} problem{'s' if len(up) != 1 else ''}" if up else "all well"), ""]
+    for key in sorted(checks):
+        d = checks[key]
+        if d is None:
+            out.append(f"  ok      {key}")
+        else:
+            r = st.get(key, {})
+            word = "PROBLEM" if r.get("raised") else "failing"
+            out.append(f"  {word:7} {key}: {d} ({r.get('fails', 1)} runs, since {r.get('since', '?')})")
+    for host in sorted(unknown):
+        out.append(f"  ?       {host}: units unknown while it does not answer")
+    out += ["", f"A check is a problem after {cfg.get('threshold', 2)} failed runs in a row.",
+            f"Checked by deevnet-health-watch on {cfg['self']}.", ""]
+    return "\n".join(out)
+
+
+def write(path, text):
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(text)
+    os.chmod(tmp, 0o644)
+    os.replace(tmp, path)
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    ap.add_argument("--config", default="/etc/deevnet/health-watch.json")
+    ap.add_argument("--dry-run", action="store_true")
+    a = ap.parse_args()
+    cfg = json.load(open(a.config, encoding="utf-8"))
+    rdir = cfg["report_dir"]
+    try:
+        uptime = float(open("/proc/uptime", encoding="ascii").read().split()[0])
+    except (OSError, ValueError, IndexError):
+        uptime = 1e9
+    if uptime < int(cfg.get("boot_grace", 0)) and not a.dry_run:
+        print(f"up {int(uptime)} s, under the {cfg['boot_grace']} s grace after boot; not checking yet")
+        return 0
+    now = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0)
+    try:
+        state = json.load(open(cfg["state"], encoding="utf-8"))
+    except (OSError, ValueError):
+        state = {}
+
+    checks, unknown = ask_all(cfg)
+    events = evaluate(state, checks, unknown, now, int(cfg.get("threshold", 2)))
+    latest = report(cfg, state, checks, unknown, now)
+    notice = notice_text(state, rdir)
+    lines = [f"{iso(now)} {w} {k}: {d}" for w, k, d in events]
+
+    if a.dry_run:
+        print(latest)
+        print(f"--- notice\n{notice or '(empty)'}")
+        print("--- events\n" + ("\n".join(lines) or "(none)"))
+        return 0
+    write(os.path.join(rdir, "latest.txt"), latest)
+    write(os.path.join(rdir, "notice"), notice)
+    if lines:
+        with open(os.path.join(rdir, "events.log"), "a", encoding="utf-8") as f:
+            f.write("\n".join(lines) + "\n")
+    write(cfg["state"], json.dumps(state, indent=1, sort_keys=True))
+    for line in lines:
+        print(line)
+    failing = sum(1 for d in checks.values() if d)
+    print(f"{len(checks)} checks, {failing} failing, {len(raised(state))} raised")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

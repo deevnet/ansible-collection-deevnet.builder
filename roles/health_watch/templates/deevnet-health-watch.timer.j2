@@ -1,0 +1,12 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Check that the substrate is running (INC-0007)
+
+[Timer]
+# On the clock, so it runs whether or not it has run before. The watcher itself
+# stays quiet for a while after the Builder boots, while the site comes up.
+OnCalendar={{ health_watch_calendar }}
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,4 @@
+command="{{ update_check_path }}",restrict,from="{{ update_check_from }}" {{ _update_check_key | trim }}
+{% if _update_check_health_key is match('ssh-ed25519 ') %}
+command="{{ update_check_health_path }}",restrict,from="{{ update_check_from }}" {{ _update_check_health_key | trim }}
+{% endif %}

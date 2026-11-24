@@ -1,0 +1,55 @@
+---
+# health_watch - the health watcher on the Builder (INC-0007 action 4).
+#
+# Every few minutes it asks every substrate host for its failed systemd units,
+# and asks the Deevnet API and the Omada controller whether they are up. A
+# check that fails a few runs in a row raises a banner at login, which clears
+# itself when the check passes again. Nothing leaves the Builder.
+#
+# It runs as the update watcher's account (role update_watch, which comes
+# first), with a key of its own: on each host update_check pins it to one
+# read-only program, deevnet-health-check. Neither key can run the other's
+# program.
+
+health_watch_user: "{{ update_watch_user | default('deevnet-watch') }}"
+health_watch_home: "{{ update_watch_home | default('/var/lib/deevnet-watch') }}"
+health_watch_key: "{{ health_watch_home }}/.ssh/health_ed25519"
+# The public half, where update_check reads it on the control node.
+health_watch_public_key_file: /etc/deevnet/health-watch.pub
+
+health_watch_script: /usr/local/sbin/deevnet-health-watch
+health_watch_config: /etc/deevnet/health-watch.json
+health_watch_state: "{{ health_watch_home }}/health-state.json"
+health_watch_check: /usr/local/sbin/deevnet-health-check
+
+# The hosts it asks: the same as the update watcher's.
+health_watch_targets: "{{ (groups['management_plane'] | default([]))
+                          + (groups['builder'] | default([]))
+                          + (groups['hypervisors'] | default([])) }}"
+
+# Failed units that are known and accepted, by host: {host: [unit, ...]}.
+# Each one needs a reason beside it in inventory.
+health_watch_ignore_units: {}
+
+# What it asks over HTTPS. kind: alive (200), api-ready (the database ok;
+# OpenBao sealed is normal), omada (up and configured).
+health_watch_api_url: "https://api.{{ deevnet_substrate | default('mobile') }}.{{ deevnet_root_domain | default('deevnet.net') }}:8080"
+health_watch_omada_host: "{{ (groups['network_controllers'] | default([]) | intersect(groups['management_plane'] | default([]))) | first | default('') }}"
+health_watch_probes:
+  - {name: "Deevnet API alive", kind: alive, url: "{{ health_watch_api_url }}/healthz", verify: true}
+  - {name: "Deevnet API database", kind: api-ready, url: "{{ health_watch_api_url }}/readyz", verify: true}
+# omada-api: UNDOCUMENTED /api/info tested-on 6.3.0.45 (as discover.yml reads it)
+health_watch_omada_probe:
+  - {name: "Omada controller configured", kind: omada, url: "https://{{ hostvars[health_watch_omada_host]['ansible_host'] | default('') }}:8043/api/info", verify: "{{ site_verify_omada | default(false) }}"}
+
+# Where it reports, and the banner that shows what is raised.
+health_watch_report_dir: /srv/health
+health_watch_profile_script: /etc/profile.d/deevnet-health.sh
+
+# How often it runs, and how many failed runs in a row make a problem: every 5
+# minutes and 2, so a problem shows within about ten minutes and one slow answer
+# does not. For the first boot_grace seconds after the Builder boots it does not
+# run, while the hypervisors and their VMs come up.
+health_watch_calendar: "*:0/5"
+health_watch_threshold: 2
+health_watch_boot_grace: 600

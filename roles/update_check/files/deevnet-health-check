@@ -1,0 +1,20 @@
+#!/bin/sh
+# deevnet-health-check - is this host well, read-only.
+#
+# Run every few minutes by the health watcher on the Builder over SSH, as the
+# deevnet-watch account, through a key of its own pinned to this program
+# (command=, restrict, from=). Like deevnet-update-check, it never reads
+# SSH_ORIGINAL_COMMAND: whatever the client asks for, this runs.
+#
+# It prints raw sections, each opened by a "### <name>" line: the system's
+# state and every failed systemd unit, one per line. Systemd answers these for
+# any user, so no root and no sudo.
+
+export LC_ALL=C
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+
+echo "### system-state"
+systemctl is-system-running 2>/dev/null
+echo "### failed-units"
+systemctl list-units --state=failed --plain --no-legend --no-pager 2>/dev/null | awk '{print $1}'
+exit 0

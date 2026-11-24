@@ -1,0 +1,108 @@
+---
+# The account is the update watcher's (role update_watch, which runs first);
+# made here too so this role stands alone. Same settings, so no change.
+- name: The watcher's account
+  ansible.builtin.user:
+    name: "{{ health_watch_user }}"
+    home: "{{ health_watch_home }}"
+    shell: /sbin/nologin
+    password: "!"
+    system: true
+    create_home: true
+
+- name: The watcher's .ssh directory
+  ansible.builtin.file:
+    path: "{{ health_watch_home }}/.ssh"
+    state: directory
+    owner: "{{ health_watch_user }}"
+    group: "{{ health_watch_user }}"
+    mode: "0700"
+
+# Its own key, separate from the update watcher's, so each can run only its own
+# check on a host. Made here and never copied anywhere.
+- name: Make the health watcher's key
+  ansible.builtin.command:
+    argv: [ssh-keygen, -q, -t, ed25519, -N, "", -C, "deevnet-health@{{ inventory_hostname }}", -f, "{{ health_watch_key }}"]
+    creates: "{{ health_watch_key }}"
+
+- name: The key is the watcher's alone
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    owner: "{{ health_watch_user }}"
+    group: "{{ health_watch_user }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - {path: "{{ health_watch_key }}", mode: "0600"}
+    - {path: "{{ health_watch_key }}.pub", mode: "0644"}
+  loop_control:
+    label: "{{ item.path }}"
+  ignore_errors: "{{ ansible_check_mode }}"
+
+- name: Read the health watcher's public key
+  ansible.builtin.slurp:
+    src: "{{ health_watch_key }}.pub"
+  register: _health_watch_pub
+  ignore_errors: "{{ ansible_check_mode }}"
+
+- name: Publish the public key for update_check
+  ansible.builtin.copy:
+    content: "{{ (_health_watch_pub.content | default('')) | b64decode }}"
+    dest: "{{ health_watch_public_key_file }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: The report directory, readable by the operator
+  ansible.builtin.file:
+    path: "{{ health_watch_report_dir }}"
+    state: directory
+    owner: "{{ health_watch_user }}"
+    group: "{{ health_watch_user }}"
+    mode: "0755"
+  ignore_errors: "{{ ansible_check_mode }}"
+
+- name: The banner at login
+  ansible.builtin.template:
+    src: deevnet-health.sh.j2
+    dest: "{{ health_watch_profile_script }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Install the watcher
+  ansible.builtin.copy:
+    src: deevnet-health-watch
+    dest: "{{ health_watch_script }}"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Write the watcher's configuration
+  ansible.builtin.template:
+    src: health-watch.json.j2
+    dest: "{{ health_watch_config }}"
+    owner: root
+    group: "{{ health_watch_user }}"
+    mode: "0640"
+    validate: "python3 -c \"import json,sys; json.load(open('%s'))\""
+  ignore_errors: "{{ ansible_check_mode }}"
+
+- name: Install the watcher's units
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - deevnet-health-watch.service
+    - deevnet-health-watch.timer
+  register: _health_watch_units
+
+- name: The timer is running
+  ansible.builtin.systemd_service:
+    name: deevnet-health-watch.timer
+    daemon_reload: "{{ _health_watch_units is changed }}"
+    enabled: true
+    state: "{{ 'restarted' if _health_watch_units is changed else 'started' }}"
+  ignore_errors: "{{ ansible_check_mode }}"

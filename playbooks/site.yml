@@ -5,6 +5,10 @@
   roles:
     - role: update_watch
       tags: [update_watch]
+    # The health watcher (INC-0007), on the same account with a key of its own,
+    # which update_check pins to the health check below.
+    - role: health_watch
+      tags: [health_watch]
 
 - hosts: builder
   become: true
