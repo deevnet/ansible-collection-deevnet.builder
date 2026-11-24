@@ -1,0 +1,20 @@
+---
+# The data it reads is the update watcher's (role update_watch, earlier in the
+# same play): /srv/updates/latest.json, and /srv/health from health_watch.
+
+- name: The MCP Python SDK
+  ansible.builtin.dnf:
+    name: "{{ patch_mcp_packages }}"
+    state: present
+
+- name: The server
+  ansible.builtin.copy:
+    src: deevnet-patch-mcp
+    dest: "{{ patch_mcp_program }}"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: The SDK's server imports
+  ansible.builtin.command: python3 -c "import mcp.server.fastmcp"
+  changed_when: false

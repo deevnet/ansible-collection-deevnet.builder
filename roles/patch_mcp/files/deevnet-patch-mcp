@@ -1,0 +1,318 @@
+#!/usr/bin/python3
+"""deevnet-patch-mcp - read-only patch tools for Claude, over MCP (Patch Management).
+
+A Model Context Protocol server on stdio. Claude Code starts it on the Builder as
+the operator, and it answers questions about what needs patching from what the
+substrate's watchers already wrote:
+
+  /srv/updates/latest.json   the update watcher's last run (daily): every host's
+                             waiting packages, their class (major, minor) and
+                             security advisories with severity, and each OS
+                             release's end of life
+  /srv/health/               the health watcher's last run (every five minutes)
+  /srv/discovery/DATE.json   the newest discovery report (make discover)
+
+It only reads those files. No tool runs a command, opens a connection, or writes
+anything; it listens on no port and holds no credential. Fresher data comes from
+the watchers themselves (make update-watch-now in deevnet.builder).
+
+    deevnet-patch-mcp [--updates DIR] [--health DIR] [--discovery DIR]
+    deevnet-patch-mcp --self-test     start the server, call every tool, report
+"""
+import argparse
+import datetime
+import json
+import os
+import re
+import sys
+
+SEVERITIES = ["Critical", "Important", "Moderate", "Low", "None"]
+EOL_WARN_DAYS = 90
+
+ARGS = None
+
+
+# --- Reading ---------------------------------------------------------------------
+
+
+def _read_updates():
+    path = os.path.join(ARGS.updates, "latest.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except OSError as e:
+        raise ValueError(f"no update report at {path} ({e.strerror}): "
+                         "run make update-watch-now in deevnet.builder") from None
+
+
+def _today():
+    return datetime.date.today()
+
+
+def _eol(eol_date):
+    """(date string or None, days left or None, flag)."""
+    if not eol_date:
+        return None, None, "no end-of-life date recorded"
+    days = (datetime.date.fromisoformat(eol_date) - _today()).days
+    flag = "past end of life" if days < 0 else (f"within {EOL_WARN_DAYS} days" if days <= EOL_WARN_DAYS else "supported")
+    return eol_date, days, flag
+
+
+def _sev_rank(sev):
+    return SEVERITIES.index(sev) if sev in SEVERITIES else len(SEVERITIES)
+
+
+def _host(data, host):
+    if host not in data["hosts"]:
+        raise ValueError(f"unknown host {host!r}; known: {', '.join(sorted(data['hosts']))}")
+    return data["hosts"][host]
+
+
+def _counts(updates):
+    c = {"waiting": len(updates), "major": 0, "minor": 0, "unsorted": 0, "security": 0}
+    c.update({s.lower(): 0 for s in ("Critical", "Important")})
+    for u in updates:
+        c[u.get("class") or "unsorted"] += 1
+        c["security"] += bool(u.get("security"))
+        sevs = {a.get("severity") for a in u.get("advisories", [])}
+        for s in ("Critical", "Important"):
+            if s in sevs:
+                c[s.lower()] += 1
+    return c
+
+
+def _envelope(data, **body):
+    return {"checked_at": data["checked_at"], "checked_on": data["self"], **body}
+
+
+# --- Tools -----------------------------------------------------------------------
+
+
+def patch_status() -> dict:
+    """What waits on every substrate system: for each, its kind, OS release and how
+    close that release is to end of life, and counts of waiting updates (major,
+    minor, security, and packages fixing Critical or Important advisories); then
+    the core router's and network devices' newer releases, systems that did not
+    answer, and news the operator has not yet acknowledged. Data is from the update
+    watcher's last daily run (checked_at)."""
+    data = _read_updates()
+    systems = []
+    for name, h in sorted(data["hosts"].items(), key=lambda kv: (data["kinds"].index(kv[1]["kind"])
+                                                                if kv[1]["kind"] in data["kinds"] else 99, kv[0])):
+        row = {"host": name, "kind": h["kind"], "answered": h["answered"]}
+        if h["answered"]:
+            eol, days, flag = _eol(h.get("os_eol"))
+            row.update({"os_release": h.get("os_release"), "os_eol": eol, "os_eol_days_left": days,
+                        "os_eol_status": flag, "cache_days": h.get("cache_days"),
+                        "updates": _counts(h["updates"]),
+                        "reported_as_news": h.get("news", True)})
+        if h.get("error"):
+            row["error"] = h["error"]
+        systems.append(row)
+    return _envelope(data, systems=systems, network=data.get("network", []),
+                     not_answering=data.get("failures", {}), notes=data.get("notes", []),
+                     unacknowledged_news=data.get("pending", []))
+
+
+def host_updates(host: str, only: str = "all") -> dict:
+    """The updates waiting on one host: each package's installed and new version,
+    its class (major or minor) and the security advisories it fixes with their
+    severity. only: "all", "major", "security" or "critical" (Critical advisories)."""
+    if only not in ("all", "major", "security", "critical"):
+        raise ValueError('only must be "all", "major", "security" or "critical"')
+    data = _read_updates()
+    h = _host(data, host)
+    ups = h["updates"]
+    if only == "major":
+        ups = [u for u in ups if u.get("class") == "major"]
+    elif only == "security":
+        ups = [u for u in ups if u.get("security")]
+    elif only == "critical":
+        ups = [u for u in ups if any(a.get("severity") == "Critical" for a in u.get("advisories", []))]
+    rows = [{"package": u["name"], "installed": u.get("installed") or None, "new": u["version"],
+             "class": u.get("class"), "advisories": u.get("advisories", [])} for u in ups]
+    rows.sort(key=lambda r: (min([_sev_rank(a.get("severity")) for a in r["advisories"]] or [99]),
+                             r["class"] != "major", r["package"]))
+    return _envelope(data, host=host, os=h.get("os"), answered=h["answered"], error=h.get("error"),
+                     only=only, count=len(rows), updates=rows)
+
+
+def security_advisories(min_severity: str = "Important") -> dict:
+    """Security advisories waiting anywhere, at or above min_severity ("Critical",
+    "Important", "Moderate", "Low"), most severe first: each with its severity,
+    the packages it fixes and the hosts waiting on it. Fedora hosts name their
+    advisories; Debian-based hosts (the hypervisors) show packages from the
+    security suite without an advisory id or severity, listed under "unrated"."""
+    if min_severity not in SEVERITIES[:4]:
+        raise ValueError('min_severity must be "Critical", "Important", "Moderate" or "Low"')
+    data = _read_updates()
+    limit = _sev_rank(min_severity)
+    adv, unrated = {}, {}
+    for name, h in data["hosts"].items():
+        for u in h["updates"]:
+            for a in u.get("advisories", []):
+                if a.get("id") is None:
+                    unrated.setdefault(name, []).append(u["name"])
+                    continue
+                if _sev_rank(a.get("severity")) > limit:
+                    continue
+                e = adv.setdefault(a["id"], {"advisory": a["id"], "severity": a.get("severity"),
+                                             "packages": set(), "hosts": set()})
+                e["packages"].add(u["name"])
+                e["hosts"].add(name)
+    rows = sorted(({**e, "packages": sorted(e["packages"]), "hosts": sorted(e["hosts"])} for e in adv.values()),
+                  key=lambda e: (_sev_rank(e["severity"]), -len(e["hosts"]), e["advisory"]))
+    by_sev = {}
+    for e in rows:
+        by_sev[e["severity"]] = by_sev.get(e["severity"], 0) + 1
+    return _envelope(data, min_severity=min_severity, count=len(rows), by_severity=by_sev,
+                     advisories=rows, unrated={k: sorted(set(v)) for k, v in unrated.items()})
+
+
+def os_releases() -> dict:
+    """Each host's operating system release and its end-of-life date, with days
+    left, flagged when within 90 days or past it. Dates come from the vendors'
+    published schedules, recorded in the update watcher's configuration; a release
+    without a recorded date says so."""
+    data = _read_updates()
+    rows = []
+    for name, h in sorted(data["hosts"].items()):
+        if not h["answered"]:
+            rows.append({"host": name, "answered": False, "error": h.get("error")})
+            continue
+        eol, days, flag = _eol(h.get("os_eol"))
+        rows.append({"host": name, "kind": h["kind"], "os": h.get("os"), "os_release": h.get("os_release"),
+                     "os_eol": eol, "days_left": days, "status": flag})
+    rows.sort(key=lambda r: (r.get("days_left") is None, r.get("days_left") or 0, r["host"]))
+    return _envelope(data, warn_within_days=EOL_WARN_DAYS, releases=rows,
+                     eol_dates_recorded=data.get("eol", {}))
+
+
+def health_status() -> dict:
+    """The health watcher's last run (every five minutes): every check and its
+    result, what is raised now (the Builder's login banner), and the last raised
+    and cleared events."""
+    out = {}
+    for f, key in (("latest.txt", "last_run"), ("notice", "raised_now")):
+        try:
+            with open(os.path.join(ARGS.health, f), encoding="utf-8") as fh:
+                out[key] = fh.read().strip() or None
+        except OSError as e:
+            out[key] = f"unreadable: {e.strerror}"
+    try:
+        with open(os.path.join(ARGS.health, "events.log"), encoding="utf-8") as fh:
+            out["recent_events"] = fh.read().splitlines()[-20:]
+    except OSError:
+        out["recent_events"] = []
+    return out
+
+
+def discovery_report() -> dict:
+    """The newest discovery report (make discover in deevnet.mgmt): the versions
+    observed on every system, including the core router, switch and AP, which the
+    update watcher does not ask directly."""
+    try:
+        names = sorted(f for f in os.listdir(ARGS.discovery) if re.fullmatch(r"\d{4}-\d{2}-\d{2}\.json", f))
+    except OSError as e:
+        raise ValueError(f"cannot read {ARGS.discovery}: {e.strerror}") from None
+    if not names:
+        raise ValueError("no discovery report yet: run make discover in deevnet.mgmt")
+    with open(os.path.join(ARGS.discovery, names[-1]), encoding="utf-8") as f:
+        rep = json.load(f)
+    return {"report": names[-1], "older_reports": names[:-1][-5:], **rep}
+
+
+TOOLS = [patch_status, host_updates, security_advisories, os_releases, health_status, discovery_report]
+
+
+# --- Serving ---------------------------------------------------------------------
+
+
+def serve():
+    from mcp.server.fastmcp import FastMCP
+    from mcp.types import ToolAnnotations
+
+    server = FastMCP(
+        "deevnet-patch",
+        instructions=("Read-only patch status for the Deevnet substrate, from the update and health "
+                      "watchers on the Builder. Every answer carries checked_at: the update data is "
+                      "from the last daily run. Nothing here changes any system."),
+        log_level="WARNING",
+    )
+    ro = ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False)
+    for fn in TOOLS:
+        server.tool(annotations=ro)(fn)
+    server.run("stdio")
+
+
+async def _self_test():
+    from mcp import ClientSession, StdioServerParameters
+    from mcp.client.stdio import stdio_client
+
+    argv = [os.path.abspath(__file__), "--updates", ARGS.updates, "--health", ARGS.health,
+            "--discovery", ARGS.discovery]
+    params = StdioServerParameters(command=sys.executable, args=argv)
+    calls = [("patch_status", {}), ("os_releases", {}), ("security_advisories", {"min_severity": "Critical"}),
+             ("host_updates", {"host": ARGS.test_host, "only": "critical"}), ("health_status", {}),
+             ("discovery_report", {}), ("host_updates", {"host": "no-such-host"})]
+    failed = 0
+    async with stdio_client(params) as (r, w):
+        async with ClientSession(r, w) as s:
+            await s.initialize()
+            tools = (await s.list_tools()).tools
+            print(f"tools: {', '.join(t.name for t in tools)}")
+            print(f"read-only: {all(t.annotations and t.annotations.readOnlyHint for t in tools)}")
+            for name, args in calls:
+                res = await s.call_tool(name, args)
+                text = res.content[0].text if res.content else ""
+                expect_error = args.get("host") == "no-such-host"
+                ok = res.isError == expect_error
+                failed += not ok
+                print(f"{'ok  ' if ok else 'FAIL'} {name}({', '.join(f'{k}={v}' for k, v in args.items())}): "
+                      f"{'error as expected: ' if expect_error and res.isError else ''}{_gist(name, text)}")
+    return failed
+
+
+def _gist(name, text):
+    try:
+        d = json.loads(text)
+    except ValueError:
+        return text[:120]
+    if name == "patch_status":
+        return f"{len(d['systems'])} systems, checked {d['checked_at']}"
+    if name == "os_releases":
+        r = d["releases"][0]
+        return f"soonest: {r.get('host')} {r.get('os_release')} ends {r.get('os_eol')} ({r.get('days_left')} days)"
+    if name == "security_advisories":
+        return f"{d['count']} at or above {d['min_severity']}"
+    if name == "host_updates":
+        return f"{d['host']}: {d['count']} {d['only']}"
+    if name == "health_status":
+        return (d.get("last_run") or "").splitlines()[0] if d.get("last_run") else "no run"
+    if name == "discovery_report":
+        return f"{d['report']}"
+    return text[:120]
+
+
+def main():
+    global ARGS
+    import warnings
+    # pydantic-settings on Python 3.14 warns about the SDK's own models on import;
+    # harmless, and it would land in Claude Code's server log on every start.
+    warnings.filterwarnings("ignore", message=r"Field 'lifespan' has an incomplete definition")
+    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    ap.add_argument("--updates", default="/srv/updates")
+    ap.add_argument("--health", default="/srv/health")
+    ap.add_argument("--discovery", default="/srv/discovery")
+    ap.add_argument("--self-test", action="store_true")
+    ap.add_argument("--test-host", default=os.uname().nodename.split(".")[0])
+    ARGS = ap.parse_args()
+    if ARGS.self_test:
+        import asyncio
+        return 1 if asyncio.run(_self_test()) else 0
+    serve()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

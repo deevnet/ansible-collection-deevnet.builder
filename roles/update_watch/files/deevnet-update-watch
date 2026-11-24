@@ -13,6 +13,9 @@ Once a day, as the deevnet-watch account on the Builder:
 
 It writes, in report_dir:
   latest.txt         everything waiting now, every run;
+  latest.json        the same as data, every run: each host's waiting packages
+                     with their class and security advisories, and its OS
+                     release's end of life. Read by deevnet-patch-mcp;
   YYYY-MM-DD.txt     what was new that day: a security update, a host with
                      updates waiting that had none, a new OPNsense release or
                      device firmware, a system that stopped answering, and a
@@ -81,9 +84,11 @@ def parse_check(text, now):
         rc = kv(lines[0]).get("rc", "") if lines else ""
         if rc not in ("0", "100"):
             res["error"] = "dnf check-upgrade failed: " + " ".join(lines[1:])[:300]
-        secure = set()
+        advisories = {}  # package name -> [{id, severity}]
         try:
-            secure = {nevra_name(a.get("nevra", "")) for a in json.loads(s.get("dnf-security") or "[]")}
+            for a in json.loads(s.get("dnf-security") or "[]"):
+                advisories.setdefault(nevra_name(a.get("nevra", "")), []).append(
+                    {"id": a.get("name"), "severity": a.get("severity") or None})
         except ValueError:
             pass
         installed = {}
@@ -98,7 +103,8 @@ def parse_check(text, now):
             if len(f) == 3:
                 name = f[0].rsplit(".", 1)[0]
                 res["updates"].append({"name": name, "version": f[1], "installed": installed.get(f[0], ""),
-                                       "security": name in secure})
+                                       "security": name in advisories,
+                                       "advisories": advisories.get(name, [])})
     elif "apt-upgradable" in s:
         for line in s["apt-upgradable"].splitlines():
             f = line.split()
@@ -106,8 +112,11 @@ def parse_check(text, now):
                 continue  # "Listing..." and blanks
             name, suites = f[0].split("/", 1)
             m = re.search(r"\[upgradable from: ([^\]]+)\]", line)
+            sec = "-security" in suites
             res["updates"].append({"name": name, "version": f[1], "installed": m.group(1) if m else "",
-                                   "security": "-security" in suites})
+                                   "security": sec,
+                                   # Debian's security suite names no advisory or severity here.
+                                   "advisories": [{"id": None, "severity": None}] if sec else []})
     age = (s.get("cache-age") or "").strip()
     if age:
         try:
@@ -369,17 +378,28 @@ def upstream(v):
 
 def classify(installed, version):
     """'major' when the epoch or the first version field changes, 'minor' for any
-    other update, None when the installed version is not known. A first field of
-    four or more digits is a date or a year (linux-firmware 20251021, tzdata
-    2025b), which moves every year without meaning more: minor."""
+    other update, None when the installed version is not known. Two kinds of
+    first field move on every release without meaning more, and are minor:
+    a date or a year, four or more digits (linux-firmware 20251021, tzdata
+    2025b), and a version that is one number alone (less 704, ndctl 82)."""
     if not installed:
         return None
     (e1, f1), (e2, f2) = upstream(installed), upstream(version)
     if e1 != e2:
         return "major"
-    if f1 != f2 and not (len(f1) >= 4 and f1.isdigit() and len(f2) >= 4 and f2.isdigit()):
-        return "major"
-    return "minor"
+    if f1 == f2 or (len(f1) >= 4 and f1.isdigit() and len(f2) >= 4 and f2.isdigit()):
+        return "minor"
+    if single_number(installed) and single_number(version):
+        return "minor"
+    return "major"
+
+
+def single_number(v):
+    """True for a version that is one number and nothing else, before its release:
+    "0:704-4.fc44" and "710-2.fc44" are; "6.17.1-300.fc43" is not."""
+    rest = v.strip().split(":", 1)[-1] if re.match(r"\d+:", v.strip()) else v.strip()
+    up = rest.rsplit("-", 1)[0] if "-" in rest else rest
+    return up.isdigit()
 
 
 def tally(updates):
@@ -461,6 +481,30 @@ def notice_text(state, report_dir, board=()):
     return "\n".join([bar, *lines, bar]) + "\n"
 
 
+def as_json(cfg, hosts, unmailed, extras, failures, notes, state, now):
+    """Everything the run found, for tools to read (deevnet-patch-mcp): latest.txt as data."""
+    eol = cfg.get("eol") or {}
+    kinds = {t["name"]: t.get("kind", "Other") for t in cfg["targets"]}
+    out = {}
+    for name, h in {**hosts, **unmailed}.items():
+        rel = re.sub(r"\s*\(.*\)$", "", h["os"]).strip()  # "Fedora Linux 43 (Forty Three)" -> "Fedora Linux 43"
+        out[name] = {
+            "kind": kinds.get(name, "Other"), "os": h["os"], "os_release": rel, "os_eol": eol.get(rel),
+            "news": name in hosts, "answered": True, "error": h.get("error") or None,
+            "cache_days": h.get("cache_days"),
+            "updates": [dict(u, **{"class": classify(u.get("installed", ""), u["version"])}) for u in h["updates"]],
+        }
+    for name, err in failures.items():
+        if name in kinds:
+            out[name] = {"kind": kinds[name], "answered": False, "error": err, "updates": []}
+    return json.dumps({
+        "version": 1, "checked_at": iso(now), "self": cfg["self"], "kinds": cfg.get("kinds", []),
+        "hosts": out, "network": extras,
+        "failures": {k: v for k, v in failures.items() if k not in kinds},
+        "notes": list(notes), "pending": state.get("pending") or [], "eol": eol,
+    }, indent=1, sort_keys=True) + "\n"
+
+
 def write(path, text):
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
@@ -524,12 +568,15 @@ def main():
     dated = report(cfg, title, news, hosts, unmailed, extras, failures, now, notes) if news else None
     marked = {p["line"].split(":", 1)[0] for p in state["pending"]}
     notice = notice_text(state, rdir, scoreboard(cfg, {**hosts, **unmailed}, extras, failures, marked))
+    data = as_json(cfg, hosts, unmailed, extras, failures, notes, state, now)
 
     if a.dry_run:
         print(f"--- {rdir}/notice\n{notice or '(empty)'}")
         print(f"--- {rdir}/{day}.txt\n{dated or '(not written: nothing new)'}")
+        print(f"--- {rdir}/latest.json: {len(data)} bytes, {len(json.loads(data)['hosts'])} hosts")
         return 0
     write(os.path.join(rdir, "latest.txt"), latest)
+    write(os.path.join(rdir, "latest.json"), data)
     if dated:
         path = os.path.join(rdir, f"{day}.txt")
         prior = open(path, encoding="utf-8").read() + "\n" if os.path.exists(path) else ""

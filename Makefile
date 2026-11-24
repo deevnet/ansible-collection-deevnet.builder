@@ -1,7 +1,8 @@
 .PHONY: help default pve-nag deps deps-force build check install-dev install-user rebuild apply list \
         publish clean-deps clean-project deep-clean all bootstrap-auth core-auth \
         update-watch update-watch-now update-watch-dry-run update-watch-ack \
-        health-watch health-watch-now health-watch-dry-run
+        health-watch health-watch-now health-watch-dry-run \
+        patch-mcp patch-mcp-test patch-mcp-register
 
 # ---------- Config ----------
 COLLECTION_NAME ?= deevnet-builder
@@ -90,7 +91,16 @@ help:
 "      Run the health watcher once now, writing /srv/health/latest.txt, and show it" \
 "" \
 "  health-watch-dry-run" \
-"      Print what the health watcher finds, without changing its state or the banner"
+"      Print what the health watcher finds, without changing its state or the banner" \
+"" \
+"  patch-mcp" \
+"      Deploy deevnet-patch-mcp on the Builder: read-only patch tools for Claude over MCP (stdio)" \
+"" \
+"  patch-mcp-test" \
+"      Start the patch MCP server, call every tool, and report each result" \
+"" \
+"  patch-mcp-register" \
+"      Add the patch MCP server to Claude Code (user scope) and link this collection's skills"
 
 # ---------- Deps ----------
 $(DEPS_STAMP): $(REQS)
@@ -204,3 +214,19 @@ health-watch-now:
 
 health-watch-dry-run:
 	sudo -u deevnet-watch /usr/local/sbin/deevnet-health-watch --config /etc/deevnet/health-watch.json --dry-run
+
+# ---------- Patch tools for Claude (MCP) ----------
+patch-mcp: install-dev
+	@ANSIBLE_COLLECTIONS_PATH="$(PROJECT_COLLECTIONS_PATH):$(USER_COLLECTIONS_PATH)" \
+	  ansible-playbook playbooks/site.yml --limit update_watchers --tags patch_mcp
+
+patch-mcp-test:
+	/usr/local/bin/deevnet-patch-mcp --self-test
+
+# User scope: /srv/dvnt, where Claude runs, is the organization's .github checkout.
+# The skills are linked from this checkout, so they follow its branch.
+patch-mcp-register:
+	-claude mcp remove deevnet-patch --scope user >/dev/null 2>&1
+	claude mcp add --scope user deevnet-patch -- /usr/local/bin/deevnet-patch-mcp
+	mkdir -p $(HOME)/.claude/skills
+	@for d in skills/*/; do n=$$(basename $$d); ln -sfn "$(CURDIR)/skills/$$n" "$(HOME)/.claude/skills/$$n"; echo "skill $$n linked"; done

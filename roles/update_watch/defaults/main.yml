@@ -67,6 +67,18 @@ update_watch_discovery_dir: /srv/discovery
 # directory stays theirs; the watcher reads it through its group (setgid).
 update_watch_discovery_owner: "{{ lookup('ansible.builtin.env', 'USER') }}"
 
+# Each OS release's end of life, keyed by its os-release PRETTY_NAME without the
+# part in brackets. latest.json carries it on each host, and deevnet-patch-mcp
+# reports how close it is. Taken from the vendor, never from memory: Fedora's
+# release schedules (fedorapeople.org/groups/schedule/f-NN/f-NN-key-tasks.html,
+# "Fedora Linux NN End of Life"), read 2026-11-24. Fedora marks them "a
+# changeable date"; recheck when a release ships. A release with no published
+# date (Debian 13 under Proxmox VE 9) is left out, and reported as unknown.
+update_watch_eol:
+  "Fedora Linux 43": "2026-12-09"
+  "Fedora Linux 44": "2027-06-02"
+  "Fedora Linux 45": "2027-12-08"
+
 # When it runs.
 update_watch_calendar: daily
 update_watch_random_delay: 1h
