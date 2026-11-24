@@ -20,17 +20,18 @@ It writes, in report_dir:
                      updates waiting that had none, a new OPNsense release or
                      device firmware, a system that stopped answering, and a
                      reminder for anything waiting longer than remind_days;
-  notice             a scoreboard a login banner shows while anything new has
-                     not been acknowledged: per system, how many updates wait,
-                     major, minor and security, the systems with news marked
-                     "new". Empty when there is nothing new.
+  notice             the scoreboard a login banner shows at every login: per
+                     system, how many updates wait, major, minor and security.
+                     Its first line says whether anything is new since the
+                     operator last acknowledged, and those systems are marked
+                     "new".
 Ordinary package churn on a host already behind is in latest.txt but is not
 news. Nothing leaves the Builder: no mail, no network but the questions.
 
     deevnet-update-watch --config /etc/deevnet/update-watch.json [--dry-run | --ack]
 
 --dry-run prints what it would write and leaves everything alone.
---ack     clears the notice: the operator has read the report.
+--ack     acknowledges what is new: the banner stays, saying nothing is new.
 
 A host it stops asking (made inactive, or gone from inventory) takes its
 unacknowledged news with it, so the banner never reports a system that is gone.
@@ -485,13 +486,21 @@ def scoreboard(cfg, results, extras, failures, marked=frozenset()):
 
 
 def notice_text(state, report_dir, board=()):
-    """The banner, from what is pending: empty when nothing is."""
-    pending = state.get("pending") or []
-    if not pending:
+    """The banner: the scoreboard at every login. Its first line says whether
+    anything is new since the operator last acknowledged; empty only before the
+    first run has drawn a scoreboard."""
+    if not board:
         return ""
-    first = min(p["date"] for p in pending)
-    lines = [f"Deevnet updates waiting ({len(pending)} new since {first})", "", *board, "",
-             f"Read {report_dir}/latest.txt; clear this with: make update-watch-ack (deevnet.builder)"]
+    pending = state.get("pending") or []
+    if pending:
+        first = min(p["date"] for p in pending)
+        head = f"Deevnet updates waiting ({len(pending)} new since {first})"
+        foot = (f"Read {report_dir}/latest.txt; acknowledge the new with: "
+                "make update-watch-ack (deevnet.builder)")
+    else:
+        head = "Deevnet updates waiting (nothing new since last acknowledged)"
+        foot = f"Details: {report_dir}/latest.txt, or ask Claude what needs patching"
+    lines = [head, "", *board, "", foot]
     width = max(len(x) for x in lines)
     bar = "=" * min(width, 100)
     return "\n".join([bar, *lines, bar]) + "\n"
@@ -552,8 +561,9 @@ def main():
         n = len(state.get("pending") or [])
         state["pending"] = []
         write(state_path, json.dumps(state, indent=1, sort_keys=True))
-        write(os.path.join(rdir, "notice"), "")
-        print(f"acknowledged {n}; the banner is clear")
+        # The banner stays, without its "new" marks: the last run's scoreboard.
+        write(os.path.join(rdir, "notice"), notice_text(state, rdir, state.get("board") or []))
+        print(f"acknowledged {n}; the banner shows nothing new")
         return 0
 
     hosts, unmailed, failures = {}, {}, {}
@@ -585,6 +595,8 @@ def main():
     dated = report(cfg, title, news, hosts, unmailed, extras, failures, now, notes) if news else None
     marked = {p["line"].split(":", 1)[0] for p in state["pending"]}
     notice = notice_text(state, rdir, scoreboard(cfg, {**hosts, **unmailed}, extras, failures, marked))
+    # Unmarked, for --ack to redraw the banner without running the checks.
+    state["board"] = scoreboard(cfg, {**hosts, **unmailed}, extras, failures)
     data = as_json(cfg, hosts, unmailed, extras, failures, notes, state, now)
 
     if a.dry_run:

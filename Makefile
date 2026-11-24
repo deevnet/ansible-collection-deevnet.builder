@@ -84,7 +84,7 @@ help:
 "      Show the scoreboard of updates waiting now, from the last run, whether or not anything is new" \
 "" \
 "  update-watch-ack" \
-"      Clear the login banner: the update report has been read (it returns when something is new)" \
+"      Acknowledge what is new: the login banner keeps the scoreboard, marked nothing new" \
 "" \
 "  health-watch" \
 "      Deploy the health watcher on the Builder and its read-only check on the Builder VMs and hypervisors" \
