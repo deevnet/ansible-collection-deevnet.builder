@@ -1,0 +1,12 @@
+---
+# patch_mcp - read-only patch tools for Claude, over MCP, on the Builder.
+#
+# deevnet-patch-mcp is a Model Context Protocol server on stdio: Claude Code
+# starts it as the operator (make patch-mcp-register adds it, user scope), and
+# it answers from the files the update and health watchers write. It reads only;
+# it listens on no port, opens no connection, and holds no credential.
+
+patch_mcp_program: /usr/local/bin/deevnet-patch-mcp
+# The MCP Python SDK, from Fedora's own repositories.
+patch_mcp_packages:
+  - python3-mcp

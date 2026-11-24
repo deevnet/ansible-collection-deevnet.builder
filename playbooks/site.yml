@@ -9,6 +9,10 @@
     # same check below for its health mode.
     - role: health_watch
       tags: [health_watch]
+    # Read-only patch tools for Claude over MCP, reading what the two watchers
+    # above write. Local stdio only: nothing listens.
+    - role: patch_mcp
+      tags: [patch_mcp]
 
 - hosts: builder
   become: true
