@@ -1,0 +1,15 @@
+// {{ ansible_managed }}
+// refresh_updates in deevnet-patch-mcp: members of {{ patch_mcp_refresh_group }}
+// may start the watchers' own units, and nothing else, without a password. They
+// can already do so with sudo; this lets Claude's MCP server ask, which has no
+// terminal to type one into. Stop, restart, enable and every other unit still
+// need authentication.
+polkit.addRule(function(action, subject) {
+    var units = {{ patch_mcp_refresh_units | to_json }};
+    if (action.id == "org.freedesktop.systemd1.manage-units" &&
+        action.lookup("verb") == "start" &&
+        units.indexOf(action.lookup("unit")) >= 0 &&
+        subject.isInGroup("{{ patch_mcp_refresh_group }}")) {
+        return polkit.Result.YES;
+    }
+});

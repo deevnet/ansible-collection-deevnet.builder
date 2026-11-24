@@ -2,7 +2,7 @@
         publish clean-deps clean-project deep-clean all bootstrap-auth core-auth \
         update-watch update-watch-now update-watch-show update-watch-dry-run update-watch-ack \
         health-watch health-watch-now health-watch-dry-run \
-        patch-mcp patch-mcp-test patch-mcp-register
+        patch-mcp patch-mcp-test patch-mcp-test-refresh patch-mcp-register
 
 # ---------- Config ----------
 COLLECTION_NAME ?= deevnet-builder
@@ -97,10 +97,13 @@ help:
 "      Print what the health watcher finds, without changing its state or the banner" \
 "" \
 "  patch-mcp" \
-"      Deploy deevnet-patch-mcp on the Builder: read-only patch tools for Claude over MCP (stdio)" \
+"      Deploy deevnet-patch-mcp on the Builder: patch tools for Claude over MCP (stdio), and its polkit rule" \
 "" \
 "  patch-mcp-test" \
-"      Start the patch MCP server, call every tool, and report each result" \
+"      Start the patch MCP server, call every read-only tool, and report each result" \
+"" \
+"  patch-mcp-test-refresh" \
+"      The same, then a fresh scan through its refresh_updates tool (about half a minute)" \
 "" \
 "  patch-mcp-register" \
 "      Add the patch MCP server to Claude Code (user scope) and link this collection's skills"
@@ -231,6 +234,10 @@ patch-mcp: install-dev
 
 patch-mcp-test:
 	/usr/local/bin/deevnet-patch-mcp --self-test
+
+# The same, then a fresh scan through refresh_updates (about half a minute).
+patch-mcp-test-refresh:
+	/usr/local/bin/deevnet-patch-mcp --self-test --refresh
 
 # User scope: /srv/dvnt, where Claude runs, is the organization's .github checkout.
 # The skills are linked from this checkout, so they follow its branch.
