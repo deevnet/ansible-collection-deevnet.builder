@@ -2,9 +2,9 @@
 """deevnet-health-watch - say when something running on the substrate stops (INC-0007).
 
 Every few minutes, as the deevnet-watch account on the Builder:
-  - every substrate host is asked, over SSH, for its failed systemd units. The
-    key is pinned on each host to one read-only program, deevnet-health-check,
-    and is not the update watcher's key;
+  - every substrate host is asked, over SSH, for its failed systemd units: the
+    "health" check of deevnet-watch-check, the one read-only program the
+    account's key is pinned to on each host;
   - the Deevnet API is asked whether it is alive, and whether its database is
     ready. OpenBao sealed is normal outside a work session (ADR-0042) and is
     not a problem;
@@ -50,11 +50,11 @@ def sections(text):
 def ask_host(cfg, target):
     """(problems, error): {key: detail} for the host's failed units, or why it did not answer."""
     if target["name"] == cfg["self"]:
-        argv = [cfg["check"]]
+        argv = [cfg["check"], "health"]
     else:
         argv = ["ssh", "-i", cfg["ssh_key"], "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
                 "-o", "StrictHostKeyChecking=accept-new", "-o", "IdentitiesOnly=yes",
-                f"{cfg['ssh_user']}@{target['address']}", "deevnet-health-check"]
+                f"{cfg['ssh_user']}@{target['address']}", "health"]
     try:
         p = subprocess.run(argv, capture_output=True, text=True, timeout=45)
     except (OSError, subprocess.TimeoutExpired) as e:

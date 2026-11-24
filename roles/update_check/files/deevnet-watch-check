@@ -1,0 +1,71 @@
+#!/bin/sh
+# deevnet-watch-check - what a watcher on the Builder may ask this host, read-only.
+#
+# Run over SSH as the deevnet-watch account, whose one key is pinned to this
+# program (command=, restrict, from= the Builder). The client names a check, which
+# arrives in SSH_ORIGINAL_COMMAND; run locally, the check is the first argument.
+# That text is only compared with the fixed words below. It is never run, never
+# expanded into a command and never passed on: anything else is refused. A new
+# kind of check is a new word here, not a new key.
+#
+#   updates (or nothing)  what updates are waiting, from the package manager's
+#                         cache, which the host's own timers keep fresh
+#                         (dnf-makecache on Fedora, pve-daily-update on Proxmox VE).
+#                         Asked once a day by the update watcher.
+#   health                the system's state and its failed systemd units, one per
+#                         line. Asked every few minutes by the health watcher.
+#
+# It prints raw sections, each opened by a "### <name>" line, for the watcher to
+# parse. It downloads nothing and changes nothing. No root, no sudo.
+
+export LC_ALL=C
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+
+if [ "${SSH_ORIGINAL_COMMAND+set}" = set ]; then
+    check=$SSH_ORIGINAL_COMMAND
+else
+    check=${1-}
+fi
+
+updates() {
+    echo "### os"
+    cat /etc/os-release
+
+    if command -v dnf >/dev/null 2>&1; then
+        out=$(dnf -C -q check-upgrade 2>&1)
+        rc=$?
+        echo "### dnf-check-upgrade"
+        echo "rc=$rc"
+        printf '%s\n' "$out"
+        echo "### dnf-security"
+        dnf -C -q advisory list --updates --security --json 2>/dev/null || echo "[]"
+        echo "### cache-age"
+        find /var/cache/libdnf5 -name repomd.xml -printf '%T@\n' 2>/dev/null | sort -n | tail -n 1
+    elif command -v apt >/dev/null 2>&1; then
+        echo "### apt-upgradable"
+        apt list --upgradable 2>/dev/null
+        echo "### cache-age"
+        find /var/lib/apt/lists -maxdepth 1 -name '*Packages' -printf '%T@\n' 2>/dev/null | sort -n | tail -n 1
+    else
+        echo "### error"
+        echo "no dnf or apt on this host"
+    fi
+}
+
+health() {
+    echo "### system-state"
+    systemctl is-system-running 2>/dev/null
+    echo "### failed-units"
+    systemctl list-units --state=failed --plain --no-legend --no-pager 2>/dev/null | awk '{print $1}'
+}
+
+case "$check" in
+    ""|updates) updates ;;
+    health)     health ;;
+    *)
+        echo "### error"
+        echo "unknown check; this key answers: updates, health"
+        exit 2
+        ;;
+esac
+exit 0

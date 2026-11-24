@@ -8,7 +8,7 @@
   ],
   "ssh_user": {{ update_watch_user | to_json }},
   "ssh_key": {{ update_watch_key | to_json }},
-  "check": "/usr/local/sbin/deevnet-update-check",
+  "check": {{ update_watch_check | to_json }},
   "state": {{ update_watch_state | to_json }},
   "remind_days": {{ update_watch_remind_days | int }},
   "report_dir": {{ update_watch_report_dir | to_json }},

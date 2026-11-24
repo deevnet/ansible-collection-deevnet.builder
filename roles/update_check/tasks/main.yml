@@ -3,9 +3,9 @@
 # watcher runs it on itself directly. The account and its key go only on the
 # hosts the watcher reaches over SSH.
 
-- name: Install the update check
+- name: Install the watchers' check
   ansible.builtin.copy:
-    src: deevnet-update-check
+    src: deevnet-watch-check
     dest: "{{ update_check_path }}"
     owner: root
     group: root
@@ -14,13 +14,11 @@
     mode: "0755"
   tags: [update_check]
 
-- name: Install the health check
-  ansible.builtin.copy:
-    src: deevnet-health-check
-    dest: "{{ update_check_health_path }}"
-    owner: root
-    group: root
-    mode: "0755"
+- name: Remove the check under its old name
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop: "{{ update_check_old_paths }}"
   tags: [update_check]
 
 - name: The watcher's account and key
@@ -41,10 +39,6 @@
     - name: Read the watcher's public key
       ansible.builtin.set_fact:
         _update_check_key: "{{ lookup('ansible.builtin.file', update_check_public_key_file, errors='ignore') | default('', true) }}"
-
-    - name: Read the health watcher's public key
-      ansible.builtin.set_fact:
-        _update_check_health_key: "{{ lookup('ansible.builtin.file', update_check_health_key_file, errors='ignore') | default('', true) }}"
 
     - name: Fail early when the watcher has no key yet
       ansible.builtin.assert:
@@ -75,15 +69,16 @@
         group: "{{ update_check_user }}"
         mode: "0700"
 
-    # One line per key, each pinned to its own program. Every restriction is a
-    # requirement, as for the vernemq and victorialogs writers:
-    #   command=  pins the key to one check. The client's command is ignored,
-    #             and neither check reads SSH_ORIGINAL_COMMAND.
+    # One key, for every watcher on the Builder: one key per holder, not per
+    # purpose. Every restriction is a requirement, as for the vernemq and
+    # victorialogs writers:
+    #   command=  pins the key to the check. The client's command only names
+    #             one of the check's fixed modes; anything else is refused.
     #   restrict  denies pty, agent, port and X11 forwarding and user-rc, and
     #             whatever OpenSSH adds later.
     #   from=     binds the key to the watcher's address.
     # The file is written whole: a key not listed here does not stay.
-    - name: Pin the watchers' keys to their checks
+    - name: Pin the watchers' key to the check
       ansible.builtin.template:
         src: authorized_keys.j2
         dest: "{{ update_check_home }}/.ssh/authorized_keys"

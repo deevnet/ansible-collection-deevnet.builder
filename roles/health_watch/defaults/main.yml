@@ -7,20 +7,19 @@
 # itself when the check passes again. Nothing leaves the Builder.
 #
 # It runs as the update watcher's account (role update_watch, which comes
-# first), with a key of its own: on each host update_check pins it to one
-# read-only program, deevnet-health-check. Neither key can run the other's
-# program.
+# first), with the same key: on each host update_check pins it to one read-only
+# program, deevnet-watch-check, and the health watcher asks it for its "health"
+# check. One key per holder, not per purpose: a new question is a new check in
+# that program, not a new key.
 
 health_watch_user: "{{ update_watch_user | default('deevnet-watch') }}"
 health_watch_home: "{{ update_watch_home | default('/var/lib/deevnet-watch') }}"
-health_watch_key: "{{ health_watch_home }}/.ssh/health_ed25519"
-# The public half, where update_check reads it on the control node.
-health_watch_public_key_file: /etc/deevnet/health-watch.pub
+health_watch_key: "{{ update_watch_key | default(health_watch_home ~ '/.ssh/id_ed25519') }}"
 
 health_watch_script: /usr/local/sbin/deevnet-health-watch
 health_watch_config: /etc/deevnet/health-watch.json
 health_watch_state: "{{ health_watch_home }}/health-state.json"
-health_watch_check: /usr/local/sbin/deevnet-health-check
+health_watch_check: "{{ update_watch_check | default('/usr/local/sbin/deevnet-watch-check') }}"
 
 # The hosts it asks: the same as the update watcher's.
 health_watch_targets: "{{ (groups['management_plane'] | default([]))
