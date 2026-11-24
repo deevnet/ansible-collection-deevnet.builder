@@ -1,12 +1,20 @@
 ---
-# patch_mcp - read-only patch tools for Claude, over MCP, on the Builder.
+# patch_mcp - patch tools for Claude, over MCP, on the Builder.
 #
 # deevnet-patch-mcp is a Model Context Protocol server on stdio: Claude Code
 # starts it as the operator (make patch-mcp-register adds it, user scope), and
-# it answers from the files the update and health watchers write. It reads only;
-# it listens on no port, opens no connection, and holds no credential.
+# it answers from the files the update and health watchers write. One tool,
+# refresh_updates, starts the update watcher's unit for a fresh scan; the rest
+# only read. It listens on no port and holds no credential.
 
 patch_mcp_program: /usr/local/bin/deevnet-patch-mcp
 # The MCP Python SDK, from Fedora's own repositories.
 patch_mcp_packages:
   - python3-mcp
+
+# refresh_updates starts this unit; a polkit rule lets the group start it (and
+# only start it) without a password. The operator is in wheel.
+patch_mcp_refresh_units:
+  - deevnet-update-watch.service
+patch_mcp_refresh_group: wheel
+patch_mcp_polkit_rule: /etc/polkit-1/rules.d/50-deevnet-patch-refresh.rules

@@ -15,6 +15,14 @@
     group: root
     mode: "0755"
 
+- name: The operator may start the update watcher (refresh_updates)
+  ansible.builtin.template:
+    src: 50-deevnet-patch-refresh.rules.j2
+    dest: "{{ patch_mcp_polkit_rule }}"
+    owner: root
+    group: root
+    mode: "0644"
+
 - name: The SDK's server imports
   ansible.builtin.command: python3 -c "import mcp.server.fastmcp"
   changed_when: false

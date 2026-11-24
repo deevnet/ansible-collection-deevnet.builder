@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-"""deevnet-patch-mcp - read-only patch tools for Claude, over MCP (Patch Management).
+"""deevnet-patch-mcp - patch tools for Claude, over MCP (Patch Management).
 
 A Model Context Protocol server on stdio. Claude Code starts it on the Builder as
 the operator, and it answers questions about what needs patching from what the
@@ -12,18 +12,23 @@ substrate's watchers already wrote:
   /srv/health/               the health watcher's last run (every five minutes)
   /srv/discovery/DATE.json   the newest discovery report (make discover)
 
-It only reads those files. No tool runs a command, opens a connection, or writes
-anything; it listens on no port and holds no credential. Fresher data comes from
-the watchers themselves (make update-watch-now in deevnet.builder).
+Every tool but one only reads those files. refresh_updates asks for a fresh
+scan: it starts the update watcher's own systemd unit (systemctl start, allowed
+for the operator by a polkit rule for that unit alone) and waits for it. The
+watcher runs as itself, asks every host with its own key, and writes its
+reports; this server never holds that key. No tool changes any system; the
+server listens on no port and holds no credential.
 
-    deevnet-patch-mcp [--updates DIR] [--health DIR] [--discovery DIR]
-    deevnet-patch-mcp --self-test     start the server, call every tool, report
+    deevnet-patch-mcp [--updates DIR] [--health DIR] [--discovery DIR] [--refresh-unit UNIT]
+    deevnet-patch-mcp --self-test            start the server, call every read tool, report
+    deevnet-patch-mcp --self-test --refresh  also run a fresh scan through refresh_updates
 """
 import argparse
 import datetime
 import json
 import os
 import re
+import subprocess
 import sys
 
 SEVERITIES = ["Critical", "Important", "Moderate", "Low", "None"]
@@ -222,7 +227,35 @@ def discovery_report() -> dict:
     return {"report": names[-1], "older_reports": names[:-1][-5:], **rep}
 
 
-TOOLS = [patch_status, host_updates, security_advisories, os_releases, health_status, discovery_report]
+def refresh_updates() -> dict:
+    """Scan the substrate now instead of answering from the last daily run: start
+    the update watcher (its systemd unit), which asks every host what is waiting,
+    and wait for it, about half a minute. Then answer as patch_status does, from
+    the fresh report. Use it when checked_at is old, after patching, or when the
+    operator asks for a fresh look. It changes no system: the watcher only asks,
+    and writes its own reports (/srv/updates) and the login banner."""
+    before = None
+    try:
+        before = _read_updates()["checked_at"]
+    except ValueError:
+        pass
+    try:
+        run = subprocess.run(["systemctl", "start", "--no-ask-password", ARGS.refresh_unit],
+                             stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=900)
+    except subprocess.TimeoutExpired:
+        raise ValueError(f"{ARGS.refresh_unit} did not finish within 15 minutes") from None
+    if run.returncode != 0:
+        raise ValueError(f"could not run {ARGS.refresh_unit}: {(run.stderr or run.stdout).strip()} "
+                         "(the polkit rule from make patch-mcp allows wheel to start it; "
+                         "or run make update-watch-now)")
+    status = patch_status()
+    if status["checked_at"] == before:
+        raise ValueError(f"{ARGS.refresh_unit} ran but the report is unchanged (checked_at {before}): "
+                         "see journalctl -u " + ARGS.refresh_unit)
+    return {"refreshed": True, "previous_checked_at": before, **status}
+
+
+READ_TOOLS = [patch_status, host_updates, security_advisories, os_releases, health_status, discovery_report]
 
 
 # --- Serving ---------------------------------------------------------------------
@@ -234,14 +267,20 @@ def serve():
 
     server = FastMCP(
         "deevnet-patch",
-        instructions=("Read-only patch status for the Deevnet substrate, from the update and health "
-                      "watchers on the Builder. Every answer carries checked_at: the update data is "
-                      "from the last daily run. Nothing here changes any system."),
+        instructions=("Patch status for the Deevnet substrate, from the update and health watchers on "
+                      "the Builder. Every answer carries checked_at: the update data is from the last "
+                      "run, daily unless refresh_updates has scanned since. refresh_updates runs the "
+                      "update watcher now (half a minute); every other tool only reads. Nothing here "
+                      "changes any system."),
         log_level="WARNING",
     )
     ro = ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False)
-    for fn in TOOLS:
+    for fn in READ_TOOLS:
         server.tool(annotations=ro)(fn)
+    # It writes the watcher's reports (through the watcher) and asks every host:
+    # not read-only, not destructive, safe to repeat.
+    scan = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=True, openWorldHint=True)
+    server.tool(annotations=scan)(refresh_updates)
     server.run("stdio")
 
 
@@ -250,18 +289,22 @@ async def _self_test():
     from mcp.client.stdio import stdio_client
 
     argv = [os.path.abspath(__file__), "--updates", ARGS.updates, "--health", ARGS.health,
-            "--discovery", ARGS.discovery]
+            "--discovery", ARGS.discovery, "--refresh-unit", ARGS.refresh_unit]
     params = StdioServerParameters(command=sys.executable, args=argv)
     calls = [("patch_status", {}), ("os_releases", {}), ("security_advisories", {"min_severity": "Critical"}),
              ("host_updates", {"host": ARGS.test_host, "only": "critical"}), ("health_status", {}),
              ("discovery_report", {}), ("host_updates", {"host": "no-such-host"})]
+    if ARGS.refresh:
+        calls.append(("refresh_updates", {}))
     failed = 0
     async with stdio_client(params) as (r, w):
         async with ClientSession(r, w) as s:
             await s.initialize()
             tools = (await s.list_tools()).tools
             print(f"tools: {', '.join(t.name for t in tools)}")
-            print(f"read-only: {all(t.annotations and t.annotations.readOnlyHint for t in tools)}")
+            ro = [t.name for t in tools if t.annotations and t.annotations.readOnlyHint]
+            print(f"read-only: {', '.join(ro)}")
+            print(f"not read-only: {', '.join(t.name for t in tools if t.name not in ro) or 'none'}")
             for name, args in calls:
                 res = await s.call_tool(name, args)
                 text = res.content[0].text if res.content else ""
@@ -280,6 +323,8 @@ def _gist(name, text):
         return text[:120]
     if name == "patch_status":
         return f"{len(d['systems'])} systems, checked {d['checked_at']}"
+    if name == "refresh_updates":
+        return f"{len(d['systems'])} systems, checked {d['previous_checked_at']} -> {d['checked_at']}"
     if name == "os_releases":
         r = d["releases"][0]
         return f"soonest: {r.get('host')} {r.get('os_release')} ends {r.get('os_eol')} ({r.get('days_left')} days)"
@@ -304,7 +349,9 @@ def main():
     ap.add_argument("--updates", default="/srv/updates")
     ap.add_argument("--health", default="/srv/health")
     ap.add_argument("--discovery", default="/srv/discovery")
+    ap.add_argument("--refresh-unit", default="deevnet-update-watch.service")
     ap.add_argument("--self-test", action="store_true")
+    ap.add_argument("--refresh", action="store_true", help="with --self-test, also call refresh_updates")
     ap.add_argument("--test-host", default=os.uname().nodename.split(".")[0])
     ARGS = ap.parse_args()
     if ARGS.self_test:
