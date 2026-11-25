@@ -5,6 +5,10 @@
 - name: Deploy users
   ansible.builtin.import_tasks: deploy_users.yml
 
+- name: Set up the operator's environment
+  ansible.builtin.import_tasks: operator_env.yml
+  tags: [operator-env]
+
 - name: Install web tools
   ansible.builtin.import_tasks: web_tools.yml
 

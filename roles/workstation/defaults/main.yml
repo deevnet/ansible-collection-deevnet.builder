@@ -75,3 +75,13 @@ virtualization_packages:
 hugo_version: "0.165.0"
 hugo_tarball_url: "https://github.com/gohugoio/hugo/releases/download/v{{ hugo_version }}/hugo_extended_{{ hugo_version }}_linux-amd64.tar.gz"
 hugo_tarball_sha256: "f43494894cdf4a8630a201d5c828051c77f523cc66bb3938b30806835470ac20"
+
+# proxmoxer for deevnet.mgmt's proxmox_vm role (operator_env.yml).
+workstation_proxmoxer_version: "2.3.0"
+
+# The SSH agent under tmux (operator_env.yml): source in files/, destination
+# relative to each dev user's home.
+workstation_agent_files:
+  - { src: tmux.conf, dest: .tmux.conf, mode: "0644" }
+  - { src: ssh_rc, dest: .ssh/rc, mode: "0644" }
+  - { src: tmux-ssh-agent.sh, dest: .bashrc.d/tmux-ssh-agent.sh, mode: "0644" }
