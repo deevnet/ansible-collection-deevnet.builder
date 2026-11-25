@@ -1,0 +1,59 @@
+---
+# The operator's environment on a Builder: what a dev user needs beyond the
+# packages, so a repaved Builder works the way the last one did without
+# hand setup.
+
+# proxmox_vm (deevnet.mgmt) drives the Proxmox API through proxmoxer, which
+# Fedora does not package. Installed for the system Python that ansible-core
+# runs on, so every account's plays find it.
+- name: Ensure proxmoxer is installed for Ansible's Python
+  become: true
+  ansible.builtin.pip:
+    name: "proxmoxer=={{ workstation_proxmoxer_version }}"
+    executable: pip3
+
+# --- SSH agent under tmux ---
+# A forwarded agent's socket belongs to one SSH connection and disappears with
+# it, so panes in a tmux session that outlives the connection lose the agent.
+# ~/.ssh/rc points a fixed path at the current connection's socket, tmux and
+# the shell use that path, and a reconnect repoints it.
+- name: Ensure ~/.bashrc.d exists for dev users
+  become: true
+  ansible.builtin.file:
+    path: "{{ item.home | default('/home/' + item.name) }}/.bashrc.d"
+    state: directory
+    owner: "{{ item.name }}"
+    group: "{{ item.primary_group | default(item.name) }}"
+    mode: "0700"
+  loop: "{{ dev_users | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Install the SSH agent files for dev users
+  become: true
+  ansible.builtin.copy:
+    src: "{{ file.src }}"
+    dest: "{{ item.0.home | default('/home/' + item.0.name) }}/{{ file.dest }}"
+    owner: "{{ item.0.name }}"
+    group: "{{ item.0.primary_group | default(item.0.name) }}"
+    mode: "{{ file.mode }}"
+  vars:
+    file: "{{ item.1 }}"
+  loop: "{{ (dev_users | default([])) | product(workstation_agent_files) | list }}"
+  loop_control:
+    label: "{{ item.0.name }}: {{ item.1.dest }}"
+
+# --- git over HTTPS ---
+# Pushes go over HTTPS with the gh token (`gh auth login`, then
+# `gh auth setup-git`, both per user), so SSH-style GitHub remotes are
+# rewritten to HTTPS rather than needing a key registered with GitHub.
+- name: Rewrite SSH-style GitHub remotes to HTTPS for dev users
+  become: true
+  become_user: "{{ item.name }}"
+  community.general.git_config:
+    name: url.https://github.com/.insteadOf
+    value: "git@github.com:"
+    scope: global
+  loop: "{{ dev_users | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"

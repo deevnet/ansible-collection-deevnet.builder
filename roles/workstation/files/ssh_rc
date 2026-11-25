@@ -1,0 +1,6 @@
+# Point a fixed path at this connection's forwarded agent, for tmux (see
+# ~/.tmux.conf). Only when an agent socket actually exists: a login without
+# agent forwarding must not repoint the link and break running sessions.
+if [ -S "$SSH_AUTH_SOCK" ]; then
+    ln -sf "$SSH_AUTH_SOCK" ~/.ssh/ssh_auth_sock
+fi
