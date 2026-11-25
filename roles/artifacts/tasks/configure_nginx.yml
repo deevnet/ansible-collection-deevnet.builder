@@ -73,3 +73,10 @@
     mode: "0644"
   notify: reload nginx
   become: true
+
+# Reload now, not at the end of the play. A handler only runs if the play
+# gets that far: when a later task failed, the reload was lost, and the next
+# run found the file unchanged and never notified it again. CHG-0091's first
+# run left nginx serving its stock page for the whole day that way.
+- name: Reload nginx before anything later in the play can fail
+  ansible.builtin.meta: flush_handlers
