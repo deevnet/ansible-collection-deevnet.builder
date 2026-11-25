@@ -36,6 +36,13 @@ artifacts_podman_images: []
 # Root directory for all HTTP-served files
 nginx_artifacts_root: /srv/deevnet-http
 
+# Where downloads land before they are verified and moved into place, and where
+# get_url writes its temporary file. On disk beside the artifact store, never
+# /tmp: Fedora's /tmp is a tmpfs of half the host's memory, and a 6G builder VM's
+# 2.9G /tmp cannot hold the 3.9G Fedora DVD ISO (CHG-0091). Outside the web root,
+# so nginx never serves a half-downloaded file.
+artifacts_stage_dir: "{{ nginx_artifacts_root | dirname }}/deevnet-artifacts-stage"
+
 # Directory tree we want
 nginx_artifacts_dirs:
   - iso
