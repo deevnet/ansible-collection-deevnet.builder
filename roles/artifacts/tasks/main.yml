@@ -19,8 +19,11 @@
   loop_control:
     loop_var: artifact_item
 
+# Tagged so a kickstart change publishes on its own (CHG-0091), without the
+# rest of the role's fetches.
 - name: Publish kickstart files
   ansible.builtin.import_tasks: publish_kickstarts.yml
+  tags: [kickstart]
 
 
 - name: Publish Proxmox bare-metal bootstrap scripts
