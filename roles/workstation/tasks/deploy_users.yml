@@ -163,6 +163,53 @@
     label: "{{ item.name }}"
   become: true
 
+# --- SSH agent ---
+# Every login gets an agent, so a passphrase-protected key is unlocked once
+# and git (and ssh onward) keep using it until the user's last session ends.
+# OpenSSH ships a systemd user unit for this; enabling the socket globally
+# starts an agent in each user's systemd manager on demand, at a fixed path
+# under XDG_RUNTIME_DIR, rather than a stray ssh-agent per shell.
+- name: Enable the ssh-agent socket for every user's systemd manager
+  ansible.builtin.systemd_service:
+    name: ssh-agent.socket
+    scope: global
+    enabled: true
+  become: true
+
+# Keys join the agent the first time ssh uses them: one passphrase prompt,
+# then none for the rest of the session. A host with no agent ignores it.
+- name: Add keys to the agent on first use
+  ansible.builtin.copy:
+    dest: /etc/ssh/ssh_config.d/40-deevnet-agent.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by deevnet.builder workstation role.
+      AddKeysToAgent yes
+  become: true
+
+- name: Ensure DEEVNET SSH agent block in .bashrc
+  ansible.builtin.blockinfile:
+    path: "{{ item.home | default('/home/' + item.name) }}/.bashrc"
+    create: true
+    owner: "{{ item.name }}"
+    group: "{{ item.primary_group | default(item.name) }}"
+    mode: "0644"
+    marker: "# {mark} DEEVNET SSH AGENT BLOCK"
+    block: |
+      # --- DEEVNET SSH AGENT ---
+      # Use the systemd user agent (ssh-agent.socket), unless an agent is
+      # already set, such as one forwarded from the laptop with ssh -A.
+      if [ -z "$SSH_AUTH_SOCK" ] && [ -n "$XDG_RUNTIME_DIR" ]; then
+        export SSH_AUTH_SOCK="$XDG_RUNTIME_DIR/ssh-agent.socket"
+      fi
+      # --- END DEEVNET SSH AGENT ---
+  loop: "{{ dev_users | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"
+  become: true
+
 - name: Ensure per-user npm-global directory exists
   ansible.builtin.file:
     path: "{{ item.home | default('/home/' + item.name) }}/.npm-global"
