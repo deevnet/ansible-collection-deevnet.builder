@@ -27,7 +27,7 @@
 
     - name: Ensure temp directory exists
       ansible.builtin.file:
-        path: "/tmp/proxmox_iso_{{ artifact_item.name }}"
+        path: "{{ artifacts_stage_dir }}/proxmox_iso_{{ artifact_item.name }}"
         state: directory
         mode: "0700"
       become: true
@@ -41,8 +41,9 @@
 
     - name: Download Proxmox GPG keys
       ansible.builtin.get_url:
+        tmp_dest: "{{ artifacts_stage_dir }}"
         url: "{{ item }}"
-        dest: "/tmp/proxmox_iso_{{ artifact_item.name }}/proxmox-release-{{ loop_index }}.gpg"
+        dest: "{{ artifacts_stage_dir }}/proxmox_iso_{{ artifact_item.name }}/proxmox-release-{{ loop_index }}.gpg"
         mode: "0644"
       loop: "{{ proxmox_gpg_keys }}"
       loop_control:
@@ -52,7 +53,7 @@
 
     - name: Create temporary GPG home directory
       ansible.builtin.file:
-        path: "/tmp/proxmox_iso_{{ artifact_item.name }}/gnupg"
+        path: "{{ artifacts_stage_dir }}/proxmox_iso_{{ artifact_item.name }}/gnupg"
         state: directory
         mode: "0700"
       become: true
@@ -60,8 +61,8 @@
     - name: Import Proxmox GPG keys into temporary keyring
       ansible.builtin.command:
         cmd: >
-          gpg --homedir /tmp/proxmox_iso_{{ artifact_item.name }}/gnupg
-          --import /tmp/proxmox_iso_{{ artifact_item.name }}/proxmox-release-{{ loop_index }}.gpg
+          gpg --homedir {{ artifacts_stage_dir }}/proxmox_iso_{{ artifact_item.name }}/gnupg
+          --import {{ artifacts_stage_dir }}/proxmox_iso_{{ artifact_item.name }}/proxmox-release-{{ loop_index }}.gpg
       loop: "{{ proxmox_gpg_keys }}"
       loop_control:
         index_var: loop_index
@@ -72,15 +73,17 @@
 
     - name: Download SHA256SUMS checksum file
       ansible.builtin.get_url:
+        tmp_dest: "{{ artifacts_stage_dir }}"
         url: "{{ artifact_item.checksum_url }}"
-        dest: "/tmp/proxmox_iso_{{ artifact_item.name }}/SHA256SUMS"
+        dest: "{{ artifacts_stage_dir }}/proxmox_iso_{{ artifact_item.name }}/SHA256SUMS"
         mode: "0644"
       become: true
 
     - name: Download SHA256SUMS.asc signature file
       ansible.builtin.get_url:
+        tmp_dest: "{{ artifacts_stage_dir }}"
         url: "{{ artifact_item.signature_url }}"
-        dest: "/tmp/proxmox_iso_{{ artifact_item.name }}/SHA256SUMS.asc"
+        dest: "{{ artifacts_stage_dir }}/proxmox_iso_{{ artifact_item.name }}/SHA256SUMS.asc"
         mode: "0644"
       become: true
 
@@ -89,10 +92,10 @@
     - name: Verify checksum signature (detached signature)
       ansible.builtin.command:
         cmd: >
-          gpg --homedir /tmp/proxmox_iso_{{ artifact_item.name }}/gnupg
+          gpg --homedir {{ artifacts_stage_dir }}/proxmox_iso_{{ artifact_item.name }}/gnupg
           --verify
-          /tmp/proxmox_iso_{{ artifact_item.name }}/SHA256SUMS.asc
-          /tmp/proxmox_iso_{{ artifact_item.name }}/SHA256SUMS
+          {{ artifacts_stage_dir }}/proxmox_iso_{{ artifact_item.name }}/SHA256SUMS.asc
+          {{ artifacts_stage_dir }}/proxmox_iso_{{ artifact_item.name }}/SHA256SUMS
       register: gpg_verify
       changed_when: false
       failed_when: gpg_verify.rc != 0
@@ -100,8 +103,9 @@
 
     - name: Download Proxmox ISO
       ansible.builtin.get_url:
+        tmp_dest: "{{ artifacts_stage_dir }}"
         url: "{{ artifact_item.iso_url }}"
-        dest: "/tmp/proxmox_iso_{{ artifact_item.name }}/{{ artifact_item.dest_filename }}"
+        dest: "{{ artifacts_stage_dir }}/proxmox_iso_{{ artifact_item.name }}/{{ artifact_item.dest_filename }}"
         mode: "0644"
         timeout: 1800  # 30 minutes - Proxmox ISOs are ~2GB
       become: true
@@ -109,9 +113,9 @@
     - name: Verify ISO checksum
       ansible.builtin.command:
         cmd: >
-          sha256sum --ignore-missing -c /tmp/proxmox_iso_{{ artifact_item.name }}/SHA256SUMS
+          sha256sum --ignore-missing -c {{ artifacts_stage_dir }}/proxmox_iso_{{ artifact_item.name }}/SHA256SUMS
       args:
-        chdir: "/tmp/proxmox_iso_{{ artifact_item.name }}"
+        chdir: "{{ artifacts_stage_dir }}/proxmox_iso_{{ artifact_item.name }}"
       register: checksum_verify
       changed_when: false
       failed_when: checksum_verify.rc != 0
@@ -126,7 +130,7 @@
 
     - name: Publish ISO to artifacts directory
       ansible.builtin.copy:
-        src: "/tmp/proxmox_iso_{{ artifact_item.name }}/{{ artifact_item.dest_filename }}"
+        src: "{{ artifacts_stage_dir }}/proxmox_iso_{{ artifact_item.name }}/{{ artifact_item.dest_filename }}"
         dest: "{{ nginx_artifacts_root }}/{{ artifact_item.dest_subdir }}/{{ artifact_item.dest_filename }}"
         remote_src: true
         mode: "0644"
@@ -144,6 +148,6 @@
 
     - name: Remove temporary Proxmox download directory
       ansible.builtin.file:
-        path: "/tmp/proxmox_iso_{{ artifact_item.name }}"
+        path: "{{ artifacts_stage_dir }}/proxmox_iso_{{ artifact_item.name }}"
         state: absent
       become: true

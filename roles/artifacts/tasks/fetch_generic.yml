@@ -17,6 +17,7 @@
 
 - name: Download artifact {{ artifact_item.name }}
   ansible.builtin.get_url:
+    tmp_dest: "{{ nginx_artifacts_root }}/{{ artifact_item.dest_subdir }}"
     url: "{{ artifact_item.url }}"
     dest: "{{ nginx_artifacts_root }}/{{ artifact_item.dest_subdir }}/{{ artifact_item.dest_filename }}"
     mode: "0644"

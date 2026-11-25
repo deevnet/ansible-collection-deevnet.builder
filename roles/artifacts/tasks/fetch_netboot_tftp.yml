@@ -19,6 +19,7 @@
 
 - name: Download vmlinuz for {{ artifact_item.name }}
   ansible.builtin.get_url:
+    tmp_dest: "{{ nginx_artifacts_root }}/{{ artifact_item.dest_subdir }}"
     url: "{{ artifact_item.base_url }}/vmlinuz"
     dest: "{{ nginx_artifacts_root }}/{{ artifact_item.dest_subdir }}/vmlinuz"
     mode: "0644"
@@ -45,6 +46,7 @@
 
 - name: Download initrd.img for {{ artifact_item.name }}
   ansible.builtin.get_url:
+    tmp_dest: "{{ nginx_artifacts_root }}/{{ artifact_item.dest_subdir }}"
     url: "{{ artifact_item.base_url }}/initrd.img"
     dest: "{{ nginx_artifacts_root }}/{{ artifact_item.dest_subdir }}/initrd.img"
     mode: "0644"

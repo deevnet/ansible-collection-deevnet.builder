@@ -16,30 +16,32 @@
 
     - name: Ensure temp directory exists
       ansible.builtin.file:
-        path: "/tmp/fedora_iso_{{ artifact_item.name }}"
+        path: "{{ artifacts_stage_dir }}/fedora_iso_{{ artifact_item.name }}"
         state: directory
         mode: "0700"
       become: true
 
     - name: Download Fedora GPG key
       ansible.builtin.get_url:
+        tmp_dest: "{{ artifacts_stage_dir }}"
         url: "{{ artifact_item.gpg_key_url }}"
-        dest: "/tmp/fedora_iso_{{ artifact_item.name }}/fedora.gpg"
+        dest: "{{ artifacts_stage_dir }}/fedora_iso_{{ artifact_item.name }}/fedora.gpg"
         mode: "0644"
       become: true
 
     - name: Download Fedora checksum file
       ansible.builtin.get_url:
+        tmp_dest: "{{ artifacts_stage_dir }}"
         url: "{{ artifact_item.checksum_url }}"
-        dest: "/tmp/fedora_iso_{{ artifact_item.name }}/CHECKSUM"
+        dest: "{{ artifacts_stage_dir }}/fedora_iso_{{ artifact_item.name }}/CHECKSUM"
         mode: "0644"
       become: true
 
     - name: Verify checksum signature
       ansible.builtin.command:
         cmd: >
-          gpgv --keyring /tmp/fedora_iso_{{ artifact_item.name }}/fedora.gpg
-          /tmp/fedora_iso_{{ artifact_item.name }}/CHECKSUM
+          gpgv --keyring {{ artifacts_stage_dir }}/fedora_iso_{{ artifact_item.name }}/fedora.gpg
+          {{ artifacts_stage_dir }}/fedora_iso_{{ artifact_item.name }}/CHECKSUM
       register: gpg_verify
       changed_when: false
       failed_when: gpg_verify.rc != 0
@@ -47,8 +49,9 @@
 
     - name: Download Fedora ISO
       ansible.builtin.get_url:
+        tmp_dest: "{{ artifacts_stage_dir }}"
         url: "{{ artifact_item.iso_url }}"
-        dest: "/tmp/fedora_iso_{{ artifact_item.name }}/{{ artifact_item.dest_filename }}"
+        dest: "{{ artifacts_stage_dir }}/fedora_iso_{{ artifact_item.name }}/{{ artifact_item.dest_filename }}"
         mode: "0644"
         timeout: 1800  # 30 minutes - allows for concurrent downloads
       become: true
@@ -56,9 +59,9 @@
     - name: Verify ISO checksum
       ansible.builtin.command:
         cmd: >
-          sha256sum --ignore-missing -c /tmp/fedora_iso_{{ artifact_item.name }}/CHECKSUM
+          sha256sum --ignore-missing -c {{ artifacts_stage_dir }}/fedora_iso_{{ artifact_item.name }}/CHECKSUM
       args:
-        chdir: "/tmp/fedora_iso_{{ artifact_item.name }}"
+        chdir: "{{ artifacts_stage_dir }}/fedora_iso_{{ artifact_item.name }}"
       register: checksum_verify
       changed_when: false
       failed_when: checksum_verify.rc != 0
@@ -73,7 +76,7 @@
 
     - name: Publish ISO to artifacts directory
       ansible.builtin.copy:
-        src: "/tmp/fedora_iso_{{ artifact_item.name }}/{{ artifact_item.dest_filename }}"
+        src: "{{ artifacts_stage_dir }}/fedora_iso_{{ artifact_item.name }}/{{ artifact_item.dest_filename }}"
         dest: "{{ nginx_artifacts_root }}/{{ artifact_item.dest_subdir }}/{{ artifact_item.dest_filename }}"
         remote_src: true
         mode: "0644"
@@ -91,7 +94,7 @@
 
     - name: Remove temporary Fedora download directory
       ansible.builtin.file:
-        path: "/tmp/fedora_iso_{{ artifact_item.name }}"
+        path: "{{ artifacts_stage_dir }}/fedora_iso_{{ artifact_item.name }}"
         state: absent
       become: true
 
