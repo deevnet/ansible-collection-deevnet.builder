@@ -39,8 +39,9 @@ clearpart --all --initlabel
 # - /boot/efi: 512MB EFI partition (UEFI boot)
 # - LVM volume group with:
 #   - / : 50GB (OS and packages)
-#   - /home: 20GB (user home directories)
-#   - /srv: remainder (~800GB for artifacts, ISOs, images)
+#   - /home: 60GB (user home directories, including rootless Podman storage and
+#     build caches; 20GB was 93-96% full in 2026-11)
+#   - /srv: remainder (~800GB on the Builder; ~190GB on the 320GB builder VM)
 #   - swap: 16GB
 
 part /boot --fstype=xfs --size=1024
@@ -49,7 +50,7 @@ part pv.01 --size=1 --grow
 
 volgroup vg_builder pv.01
 logvol / --vgname=vg_builder --name=lv_root --fstype=xfs --size=51200
-logvol /home --vgname=vg_builder --name=lv_home --fstype=xfs --size=20480
+logvol /home --vgname=vg_builder --name=lv_home --fstype=xfs --size=61440
 logvol /srv --vgname=vg_builder --name=lv_srv --fstype=xfs --size=1 --grow
 logvol swap --vgname=vg_builder --name=lv_swap --size=16384
 
