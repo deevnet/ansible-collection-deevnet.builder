@@ -7,6 +7,9 @@
   register: hugo_version_check
   changed_when: false
   failed_when: false
+  # Read-only, so it runs under --check too; otherwise check mode skips it
+  # and every host looks like it needs Hugo installed.
+  check_mode: false
 
 - name: Check Hugo version matches desired
   ansible.builtin.set_fact:
@@ -27,14 +30,16 @@
     dest: "{{ hugo_temp_dir.path }}/hugo.tar.gz"
     checksum: "sha256:{{ hugo_tarball_sha256 }}"
     mode: "0644"
-  when: hugo_needs_install
+  # The temp directory is not created under --check.
+  when: hugo_needs_install and hugo_temp_dir.path is defined
 
 - name: Extract Hugo binary
   ansible.builtin.unarchive:
     src: "{{ hugo_temp_dir.path }}/hugo.tar.gz"
     dest: "{{ hugo_temp_dir.path }}"
     remote_src: true
-  when: hugo_needs_install
+  # The temp directory is not created under --check.
+  when: hugo_needs_install and hugo_temp_dir.path is defined
 
 - name: Install Hugo to /usr/local/bin
   become: true
@@ -43,7 +48,8 @@
     dest: /usr/local/bin/hugo
     mode: "0755"
     remote_src: true
-  when: hugo_needs_install
+  # The temp directory is not created under --check.
+  when: hugo_needs_install and hugo_temp_dir.path is defined
 
 - name: Clean up Hugo temp directory
   ansible.builtin.file:
