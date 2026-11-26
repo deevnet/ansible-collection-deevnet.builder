@@ -39,6 +39,10 @@
   changed_when: false
 
 # --- DHCP path ---
+# Every task here names the profile after the OS interface (_discovered_iface):
+# the check, modify and bring-up below all look it up by that name. A profile
+# created under the inventory key instead (eth1) was never found, so the run
+# made it and then failed to bring up "enp4s0" (CHG-0092).
 
 - name: Check existing connection config for {{ _discovered_iface }} (DHCP)
   become: true
@@ -54,7 +58,7 @@
   ansible.builtin.command:
     cmd: >-
       nmcli connection add
-      con-name {{ _iface_key }}
+      con-name {{ _discovered_iface }}
       type ethernet
       ifname {{ _discovered_iface }}
       ipv4.method auto
@@ -105,7 +109,7 @@
   ansible.builtin.command:
     cmd: >-
       nmcli connection add
-      con-name {{ _iface_key }}
+      con-name {{ _discovered_iface }}
       type ethernet
       ifname {{ _discovered_iface }}
       ipv4.method manual
