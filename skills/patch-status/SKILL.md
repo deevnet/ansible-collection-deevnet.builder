@@ -11,7 +11,7 @@ scan. Nothing here changes a system: this skill finds and ranks the work, and re
 record for it. Applying anything is a change record the operator approves.
 
 If the tools are missing, the server is not registered: say so, and give
-`make patch-mcp-register` in `ansible-collection-deevnet.builder`.
+`make patch-mcp` in `ansible-collection-deevnet.builder`, then a new session.
 
 ## Steps
 

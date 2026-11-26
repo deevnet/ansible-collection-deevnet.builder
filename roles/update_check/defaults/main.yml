@@ -23,7 +23,7 @@ update_check_watcher: "{{ groups['update_watchers'] | default([]) | first | defa
 update_check_from: "{{ hostvars[update_check_watcher]['ansible_host'] if update_check_watcher else '' }}"
 
 # The watcher's public key, which the update_watch role publishes on the
-# watcher. The control node is the Builder, which is the watcher, so it is read
-# from there. Its private half never leaves the watcher.
+# watcher, and which this role reads from there (delegated), whichever host the
+# play runs from. Its private half never leaves the watcher.
 update_check_public_key_file: /etc/deevnet/update-watch.pub
 

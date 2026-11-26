@@ -20,12 +20,43 @@
     mode: "0700"
   tags: [update_watch]
 
-# Made here and never copied anywhere: a rebuilt Builder makes a new one, and
-# the next run of update_check pins the new public half on every host.
+# From the vault when it holds one (update_watch_private_key), so a rebuilt
+# Builder comes back with the same key and every host's pin still holds. Its
+# public half is derived from it, never kept separately. The key is still
+# usable only from the watcher's address (update_check's from=).
+- name: Install the watcher's key from the vault
+  ansible.builtin.copy:
+    content: "{{ update_watch_private_key | trim }}\n"
+    dest: "{{ update_watch_key }}"
+    owner: "{{ update_watch_user }}"
+    group: "{{ update_watch_user }}"
+    mode: "0600"
+  no_log: true
+  register: _update_watch_key_installed
+  when: update_watch_private_key | length > 0
+  tags: [update_watch]
+
+- name: Derive the public half of the vault's key
+  ansible.builtin.shell:
+    cmd: >-
+      set -o pipefail;
+      ssh-keygen -y -f {{ update_watch_key | quote }}
+      | sed 's|$| {{ update_watch_user }}@{{ inventory_hostname }}|'
+      > {{ (update_watch_key ~ '.pub') | quote }}
+    executable: /bin/bash
+  when:
+    - update_watch_private_key | length > 0
+    - _update_watch_key_installed is changed
+  tags: [update_watch]
+
+# Without a key in the vault, one is made here once. A rebuilt Builder then
+# makes a new one, and update_check must pin it on every host again
+# (deevnet.mgmt's site.yml --tags update_check for the service VMs).
 - name: Make the watcher's key
   ansible.builtin.command:
     argv: [ssh-keygen, -q, -t, ed25519, -N, "", -C, "{{ update_watch_user }}@{{ inventory_hostname }}", -f, "{{ update_watch_key }}"]
     creates: "{{ update_watch_key }}"
+  when: update_watch_private_key | length == 0
   tags: [update_watch]
 
 - name: The key is the watcher's alone

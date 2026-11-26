@@ -26,3 +26,6 @@
 - name: The SDK's server imports
   ansible.builtin.command: python3 -c "import mcp.server.fastmcp"
   changed_when: false
+
+- name: Each operator's Claude Code gets the server and the skills
+  ansible.builtin.import_tasks: operators.yml

@@ -36,9 +36,19 @@
           stolen key unusable from anywhere else.
         quiet: true
 
+    # From the watcher itself, not the control node: a play run from another
+    # host (the temporary builder during a repave, or deevnet.mgmt's site.yml)
+    # must still pin the key the watcher actually holds.
     - name: Read the watcher's public key
+      ansible.builtin.slurp:
+        src: "{{ update_check_public_key_file }}"
+      delegate_to: "{{ update_check_watcher }}"
+      register: _update_check_pub
+      failed_when: false
+
+    - name: Keep the watcher's public key
       ansible.builtin.set_fact:
-        _update_check_key: "{{ lookup('ansible.builtin.file', update_check_public_key_file, errors='ignore') | default('', true) }}"
+        _update_check_key: "{{ (_update_check_pub.content | default('')) | b64decode }}"
 
     - name: Fail early when the watcher has no key yet
       ansible.builtin.assert:
@@ -46,7 +56,7 @@
           - _update_check_key is match('ssh-ed25519 ')
         fail_msg: >-
           {{ update_check_public_key_file }} is missing or not an ed25519 key on
-          the control node. Run the update_watchers play first
+          the watcher. Run the update_watchers play first
           (make update-watch), which makes the watcher's key.
         quiet: true
 
