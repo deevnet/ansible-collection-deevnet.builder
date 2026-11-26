@@ -1,5 +1,21 @@
-# The update watcher (Patch Management v2): first, because it makes the key
-# that update_check pins on every host below and in deevnet.mgmt's site.yml.
+- hosts: builder
+  become: true
+  roles:
+    - base
+    # The site root in the OS trust store (ADR-0030 §7), so Ansible, Packer and
+    # Terraform on the Builder verify without per-tool CA flags.
+    - site_trust
+
+# Before the watchers: they give the operator's account the discovery reports,
+# and on a freshly installed Builder that account does not exist until here.
+- hosts: workstations
+  become: true
+  roles:
+    - workstation
+
+# The update watcher (Patch Management v2): before every update_check, because
+# it makes the key that update_check pins on every host below and in
+# deevnet.mgmt's site.yml.
 - hosts: update_watchers
   become: true
   roles:
@@ -14,21 +30,12 @@
     - role: patch_mcp
       tags: [patch_mcp]
 
+# The read-only account the update watcher logs in to.
 - hosts: builder
   become: true
   roles:
-    - base
-    # The site root in the OS trust store (ADR-0030 §7), so Ansible, Packer and
-    # Terraform on the Builder verify without per-tool CA flags.
-    - site_trust
-    # The read-only account the update watcher logs in to.
     - role: update_check
       tags: [update_check]
-
-- hosts: workstations
-  become: true
-  roles:
-    - workstation
 
 - hosts: artifact_servers
   become: true
