@@ -55,11 +55,33 @@ dev_tool_packages:
   # the Python one may need adjusting.
   - jq
   - yq
+  - wget
+  - curl
+  - tftp
+  - zip
+  - unzip
+  - tar
+  - tree
+
+# ISO/image building tools
+iso_packages:
+  - squashfs-tools
+  - genisoimage
+  - xorriso
+  - syslinux
+
+# X11 over SSH (dev_tools.yml)
+x11_packages:
+  - firefox              # GUI browser for X11 over SSH
+  - xorg-x11-xauth       # needed for SSH X11 forwarding
+  - xeyes                # X forwarding test app
 
 # Virtualization packages for KVM/libvirt
 virtualization_packages:
   - qemu-kvm
   - libvirt
+  - libvirt-daemon
+  - libvirt-daemon-config-network
   - libvirt-daemon-kvm
   - virt-install
   - virt-manager
