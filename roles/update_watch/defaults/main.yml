@@ -15,6 +15,10 @@
 update_watch_user: deevnet-watch
 update_watch_home: /var/lib/deevnet-watch
 update_watch_key: "{{ update_watch_home }}/.ssh/id_ed25519"
+# The key itself, an OpenSSH ed25519 private key, from the inventory's vault
+# (vault_update_watch_private_key). Kept there so a rebuilt Builder has the same
+# key and no host needs it pinned again. Empty: the role makes one on the host.
+update_watch_private_key: ""
 # The public half, where update_check reads it on the control node.
 update_watch_public_key_file: /etc/deevnet/update-watch.pub
 

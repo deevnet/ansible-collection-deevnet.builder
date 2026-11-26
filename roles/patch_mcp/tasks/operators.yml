@@ -1,0 +1,97 @@
+---
+# Each operator's Claude Code gets the server and the skills, so a freshly built
+# Builder answers "what needs patching?" with no per-account step. Claude Code
+# itself is installed per user by the workstation role, which runs earlier in
+# site.yml; an account without it is skipped, not failed.
+
+- name: The skills, where every operator's Claude Code can read them
+  ansible.builtin.copy:
+    src: "{{ patch_mcp_skills_src }}/"
+    dest: "{{ patch_mcp_skills_dir }}/"
+    owner: root
+    group: root
+    mode: u=rwX,go=rX
+    directory_mode: "0755"
+
+- name: Is Claude Code installed for each operator
+  ansible.builtin.stat:
+    path: "{{ item.home }}/.local/bin/claude"
+  loop: "{{ patch_mcp_users }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: _patch_mcp_claude
+
+- name: Each operator's skills directory
+  ansible.builtin.file:
+    path: "{{ item.item.home }}/.claude/skills"
+    state: directory
+    owner: "{{ item.item.name }}"
+    group: "{{ item.item.primary_group | default(item.item.name) }}"
+    mode: "0755"
+  loop: "{{ _patch_mcp_claude.results }}"
+  loop_control:
+    label: "{{ item.item.name }}"
+  when: item.stat.exists
+
+- name: What each operator already has under each skill's name
+  ansible.builtin.stat:
+    path: "{{ item.0.item.home }}/.claude/skills/{{ item.1 }}"
+    follow: false
+  loop: "{{ _patch_mcp_claude.results | selectattr('stat.exists') | product(patch_mcp_skills) | list }}"
+  loop_control:
+    label: "{{ item.0.item.name }}: {{ item.1 }}"
+  register: _patch_mcp_skill_links
+
+# Only where nothing is there yet: `make patch-mcp-register` links the skills to
+# a checkout instead, so they follow its branch, and that link is left alone.
+- name: Link each skill for each operator
+  ansible.builtin.file:
+    src: "{{ patch_mcp_skills_dir }}/{{ item.item.1 }}"
+    dest: "{{ item.item.0.item.home }}/.claude/skills/{{ item.item.1 }}"
+    state: link
+    # The link's owner, not its target's: the installed skills stay root's.
+    follow: false
+    owner: "{{ item.item.0.item.name }}"
+    group: "{{ item.item.0.item.primary_group | default(item.item.0.item.name) }}"
+  loop: "{{ _patch_mcp_skill_links.results }}"
+  loop_control:
+    label: "{{ item.item.0.item.name }}: {{ item.item.1 }}"
+  when: not item.stat.exists
+
+- name: Is the server registered for each operator
+  become: true
+  become_user: "{{ item.item.name }}"
+  ansible.builtin.command:
+    argv: ["{{ item.item.home }}/.local/bin/claude", mcp, get, "{{ patch_mcp_name }}"]
+  loop: "{{ _patch_mcp_claude.results }}"
+  loop_control:
+    label: "{{ item.item.name }}"
+  when: item.stat.exists
+  register: _patch_mcp_registered
+  changed_when: false
+  failed_when: false
+  # Read-only, so it runs in check mode too, and the next task can say what it
+  # would do.
+  check_mode: false
+
+# User scope: Claude Code runs in /srv/dvnt, the organization's .github
+# checkout, which is no place for a project-scoped server.
+- name: Register the server for each operator
+  become: true
+  become_user: "{{ item.item.item.name }}"
+  ansible.builtin.command:
+    argv:
+      - "{{ item.item.item.home }}/.local/bin/claude"
+      - mcp
+      - add
+      - --scope
+      - user
+      - "{{ patch_mcp_name }}"
+      - --
+      - "{{ patch_mcp_program }}"
+  loop: "{{ _patch_mcp_registered.results }}"
+  loop_control:
+    label: "{{ item.item.item.name }}"
+  when:
+    - item is not skipped
+    - item.rc != 0

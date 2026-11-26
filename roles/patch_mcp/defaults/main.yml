@@ -18,3 +18,16 @@ patch_mcp_refresh_units:
   - deevnet-update-watch.service
 patch_mcp_refresh_group: wheel
 patch_mcp_polkit_rule: /etc/polkit-1/rules.d/50-deevnet-patch-refresh.rules
+
+# Registered in each operator's Claude Code (user scope) under this name, with
+# the collection's skills, so a built Builder needs no per-account step. The
+# operators are the workstation role's dev_users.
+patch_mcp_name: deevnet-patch
+patch_mcp_users: "{{ dev_users | default([]) }}"
+# The skills ship at the collection's root (skills/<name>/SKILL.md) and are
+# installed here, then linked into each operator's ~/.claude/skills.
+patch_mcp_skills_src: "{{ role_path }}/../../skills"
+patch_mcp_skills_dir: /usr/local/share/deevnet/claude-skills
+# The skills to link, by directory name under skills/. A new skill is a new line.
+patch_mcp_skills:
+  - patch-status

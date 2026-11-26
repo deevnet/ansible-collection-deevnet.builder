@@ -97,7 +97,8 @@ help:
 "      Print what the health watcher finds, without changing its state or the banner" \
 "" \
 "  patch-mcp" \
-"      Deploy deevnet-patch-mcp on the Builder: patch tools for Claude over MCP (stdio), and its polkit rule" \
+"      Deploy deevnet-patch-mcp on the Builder: patch tools for Claude over MCP (stdio), its polkit rule," \
+"      and register it with the skills in every operator's Claude Code" \
 "" \
 "  patch-mcp-test" \
 "      Start the patch MCP server, call every read-only tool, and report each result" \
@@ -106,7 +107,7 @@ help:
 "      The same, then a fresh scan through its refresh_updates tool (about half a minute)" \
 "" \
 "  patch-mcp-register" \
-"      Add the patch MCP server to Claude Code (user scope) and link this collection's skills"
+"      Re-register the patch MCP server for you, and link the skills to this checkout (to follow its branch)"
 
 # ---------- Deps ----------
 $(DEPS_STAMP): $(REQS)
@@ -239,8 +240,10 @@ patch-mcp-test:
 patch-mcp-test-refresh:
 	/usr/local/bin/deevnet-patch-mcp --self-test --refresh
 
-# User scope: /srv/dvnt, where Claude runs, is the organization's .github checkout.
-# The skills are linked from this checkout, so they follow its branch.
+# make patch-mcp already registers the server and links the installed skills for
+# every operator. This is for skill development: it links the skills to this
+# checkout instead, so they follow its branch. User scope: /srv/dvnt, where Claude
+# runs, is the organization's .github checkout.
 patch-mcp-register:
 	-claude mcp remove deevnet-patch --scope user >/dev/null 2>&1
 	claude mcp add --scope user deevnet-patch -- /usr/local/bin/deevnet-patch-mcp
