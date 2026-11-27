@@ -1,0 +1,56 @@
+#!/usr/bin/python3 -I
+"""deevnet-vm-hardware - write this hypervisor's VMs' hardware for the watcher (ADR-0046).
+
+Run as root by its timer. Reads every VM's configuration through pvesh and
+writes only the parts the VM hardware profile covers - the disk controller,
+CPU, firmware, machine, agent, each disk and each NIC - to one file the
+watcher's check program can read (deevnet-watch-check vm-hardware). Nothing
+else of a VM's configuration (cloud-init, description, keys) is written, so
+the file is safe to be world-readable. Changes nothing.
+
+    deevnet-vm-hardware <output file>
+"""
+import json
+import os
+import re
+import socket
+import subprocess
+import sys
+import tempfile
+import time
+
+KEEP = re.compile(r"^(scsihw|cpu|bios|machine|agent|(scsi|sata|ide|virtio)\d+|net\d+)$")
+
+
+def pvesh(path):
+    out = subprocess.run(["pvesh", "get", path, "--output-format", "json"],
+                         check=True, capture_output=True, text=True, timeout=60).stdout
+    return json.loads(out)
+
+
+def main():
+    dest = sys.argv[1]
+    node = socket.gethostname().split(".")[0]
+    vms = []
+    for vm in pvesh(f"/nodes/{node}/qemu"):
+        cfg = pvesh(f"/nodes/{node}/qemu/{vm['vmid']}/config")
+        vms.append({
+            "vmid": int(vm["vmid"]),
+            "name": vm.get("name", ""),
+            "node": node,
+            "type": "qemu",
+            "template": bool(vm.get("template")),
+            "config": {k: v for k, v in cfg.items() if KEEP.match(k)},
+        })
+    doc = {"generated": int(time.time()), "node": node,
+           "vms": sorted(vms, key=lambda v: v["vmid"])}
+    d = os.path.dirname(dest)
+    fd, tmp = tempfile.mkstemp(dir=d, prefix=".vms-")
+    with os.fdopen(fd, "w") as f:
+        json.dump(doc, f, sort_keys=True)
+    os.chmod(tmp, 0o644)
+    os.replace(tmp, dest)
+
+
+if __name__ == "__main__":
+    main()

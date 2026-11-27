@@ -1,0 +1,11 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Write this hypervisor's VMs' hardware every few minutes
+
+[Timer]
+OnBootSec=2min
+OnCalendar={{ proxmox_node_vm_report_calendar }}
+Persistent=false
+
+[Install]
+WantedBy=timers.target

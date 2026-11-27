@@ -1,0 +1,43 @@
+---
+- name: Install the report
+  ansible.builtin.copy:
+    src: deevnet-vm-hardware
+    dest: "{{ proxmox_node_vm_report_script }}"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Create its directory, readable by the watcher's account
+  ansible.builtin.file:
+    path: "{{ proxmox_node_vm_report_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install its units
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - deevnet-vm-hardware.service
+    - deevnet-vm-hardware.timer
+  notify: Reload systemd
+
+- name: Load the units now
+  ansible.builtin.meta: flush_handlers
+
+- name: Write the report now, so the watcher has one before the timer's first run
+  ansible.builtin.systemd:
+    name: deevnet-vm-hardware.service
+    state: started
+  changed_when: false
+
+- name: Enable the timer
+  ansible.builtin.systemd:
+    name: deevnet-vm-hardware.timer
+    enabled: true
+    state: started

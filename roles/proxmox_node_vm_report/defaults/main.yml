@@ -1,0 +1,9 @@
+---
+# Each hypervisor's VMs' hardware, for the health watcher's VM hardware
+# profile check (ADR-0046). Root reads it; the watcher's pinned, unprivileged
+# check program prints the file (deevnet-watch-check vm-hardware).
+proxmox_node_vm_report_script: /usr/local/sbin/deevnet-vm-hardware
+proxmox_node_vm_report_dir: /var/lib/deevnet-vm-hardware
+proxmox_node_vm_report_file: "{{ proxmox_node_vm_report_dir }}/vms.json"
+# Every 5 minutes, as often as the watcher asks.
+proxmox_node_vm_report_calendar: "*:0/5"

@@ -42,6 +42,24 @@
     group: root
     mode: "0755"
 
+- name: Create the watcher's library directory
+  ansible.builtin.file:
+    path: "{{ health_watch_lib_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+# The one comparison with the profile, shared with deevnet.mgmt's
+# `make vm-profile` (ADR-0046).
+- name: Install the VM hardware profile comparison
+  ansible.builtin.copy:
+    src: "{{ role_path }}/../../plugins/module_utils/vm_profile.py"
+    dest: "{{ health_watch_lib_dir }}/vm_profile.py"
+    owner: root
+    group: root
+    mode: "0644"
+
 - name: Write the watcher's configuration
   ansible.builtin.template:
     src: health-watch.json.j2
