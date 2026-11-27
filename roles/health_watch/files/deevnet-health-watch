@@ -103,8 +103,11 @@ def vm_hardware_problems(cfg, target, vmp, now=None):
         return {key: f"{int(age // 60)} minutes old; is deevnet-vm-hardware.timer running?"}
     import vm_profile  # installed beside this script (lib_dir), see main()
     results = vm_profile.vm_profile_check(doc.get("vms", []), vmp["profile"], vmp.get("exceptions", {}))
-    return {f"{host} VM {r['vmid']} {r['name']} on the hardware profile": "; ".join(r["diffs"])
-            for r in results if r["result"] == "drift"}
+    # The report itself passes, so every run shows the check was made.
+    out = {key: None}
+    out.update({f"{host} VM {r['vmid']} {r['name']} on the hardware profile": "; ".join(r["diffs"])
+                for r in results if r["result"] == "drift"})
+    return out
 
 
 def http_get(url, verify=True, timeout=10):
