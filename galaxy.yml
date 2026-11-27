@@ -29,3 +29,11 @@ dependencies:
   ansible.posix: ">=1.5.0"
   # npm, in the workstation role. Below 11, as in collections/requirements.yml.
   community.general: ">=8.0.0,<11.0.0"
+
+# Kept out of the tarball. .ansible holds the collection installed from the
+# previous tarball (make install-dev), so without this each build packed every
+# earlier one inside it.
+build_ignore:
+  - .ansible
+  - "*.tar.gz"
+  - .deps.stamp
