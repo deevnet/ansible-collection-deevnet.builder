@@ -8,7 +8,12 @@ Every few minutes, as the deevnet-watch account on the Builder:
   - the Deevnet API is asked whether it is alive, and whether its database is
     ready. OpenBao sealed is normal outside a work session (ADR-0042) and is
     not a problem;
-  - the Omada controller is asked whether it is up and configured (INC-0002).
+  - the Omada controller is asked whether it is up and configured (INC-0002);
+  - each hypervisor is asked for its VMs' hardware (the "vm-hardware" check,
+    from a file its root timer writes), and every VM is compared with the VM
+    hardware profile from inventory, its declared exceptions allowed
+    (ADR-0046). The comparison is deevnet.builder's vm_profile module, the
+    same one `make vm-profile` uses.
 
 A check that fails `threshold` runs in a row is raised; one that passes again
 is cleared. It writes, in report_dir:
@@ -47,26 +52,62 @@ def sections(text):
     return out
 
 
-def ask_host(cfg, target):
-    """(problems, error): {key: detail} for the host's failed units, or why it did not answer."""
+def run_check(cfg, target, check):
+    """(sections, error): ask the host one check of deevnet-watch-check."""
     if target["name"] == cfg["self"]:
-        argv = [cfg["check"], "health"]
+        argv = [cfg["check"], check]
     else:
         argv = ["ssh", "-i", cfg["ssh_key"], "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
                 "-o", "StrictHostKeyChecking=accept-new", "-o", "IdentitiesOnly=yes",
-                f"{cfg['ssh_user']}@{target['address']}", "health"]
+                f"{cfg['ssh_user']}@{target['address']}", check]
     try:
         p = subprocess.run(argv, capture_output=True, text=True, timeout=45)
     except (OSError, subprocess.TimeoutExpired) as e:
         return None, str(e)[:200]
-    s = sections(p.stdout)
-    if p.returncode != 0 or "failed-units" not in s:
+    if p.returncode != 0:
         # ssh's last line says why; earlier ones are warnings.
         last = [x for x in p.stderr.strip().splitlines() if x.strip()][-1:] or [f"exit {p.returncode}"]
         return None, last[0][:200]
+    return sections(p.stdout), None
+
+
+def ask_host(cfg, target):
+    """(problems, error): {key: detail} for the host's failed units, or why it did not answer."""
+    s, err = run_check(cfg, target, "health")
+    if err or "failed-units" not in s:
+        return None, err or "no failed-units section"
     ignore = set(cfg.get("ignore_units", {}).get(target["name"], []))
     units = [u.strip() for u in s["failed-units"] if u.strip() and u.strip() not in ignore]
-    return {f"{target['name']} unit {u}": "failed" for u in units}, None
+    problems = {f"{target['name']} unit {u}": "failed" for u in units}
+    vmp = cfg.get("vm_profile")
+    if vmp and target["name"] in vmp.get("hosts", []):
+        problems.update(vm_hardware_problems(cfg, target, vmp))
+    return problems, None
+
+
+def vm_hardware_problems(cfg, target, vmp, now=None):
+    """{key: detail}: one per VM off the profile, or one for a missing or stale report."""
+    host = target["name"]
+    key = f"{host} VM hardware report"
+    s, err = run_check(cfg, target, "vm-hardware")
+    if err:
+        return {key: f"not read: {err}"}
+    text = "\n".join(s.get("vm-hardware", [])).strip()
+    try:
+        doc = json.loads(text)
+    except ValueError:
+        return {key: "missing" if text in ("", "missing") else "not JSON"}
+    now = now if now is not None else datetime.datetime.now().timestamp()
+    age = now - float(doc.get("generated", 0))
+    if age > vmp.get("max_age", 1800):
+        return {key: f"{int(age // 60)} minutes old; is deevnet-vm-hardware.timer running?"}
+    import vm_profile  # installed beside this script (lib_dir), see main()
+    results = vm_profile.vm_profile_check(doc.get("vms", []), vmp["profile"], vmp.get("exceptions", {}))
+    # The report itself passes, so every run shows the check was made.
+    out = {key: None}
+    out.update({f"{host} VM {r['vmid']} {r['name']} on the hardware profile": "; ".join(r["diffs"])
+                for r in results if r["result"] == "drift"})
+    return out
 
 
 def http_get(url, verify=True, timeout=10):
@@ -158,7 +199,9 @@ def evaluate(state, checks, unknown, now, threshold):
     for key in list(st):
         if key in seen:
             continue
-        host = key.split(" unit ", 1)[0] if " unit " in key else None
+        # A host's own keys ("<host> unit ...", "<host> VM ...") stand while it
+        # does not answer.
+        host = key.split(" ", 1)[0]
         if host in unknown:
             continue
         rec = st.pop(key)
@@ -218,6 +261,8 @@ def main():
     ap.add_argument("--dry-run", action="store_true")
     a = ap.parse_args()
     cfg = json.load(open(a.config, encoding="utf-8"))
+    if cfg.get("lib_dir"):
+        sys.path.insert(0, cfg["lib_dir"])
     rdir = cfg["report_dir"]
     try:
         uptime = float(open("/proc/uptime", encoding="ascii").read().split()[0])

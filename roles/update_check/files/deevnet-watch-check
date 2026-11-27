@@ -15,6 +15,9 @@
 #                         Asked once a day by the update watcher.
 #   health                the system's state and its failed systemd units, one per
 #                         line. Asked every few minutes by the health watcher.
+#   vm-hardware           a hypervisor's VMs' hardware, as its root timer wrote it
+#                         (deevnet-vm-hardware, ADR-0046): only what the VM
+#                         hardware profile covers. Asked with health.
 #
 # It prints raw sections, each opened by a "### <name>" line, for the watcher to
 # parse. It downloads nothing and changes nothing. No root, no sudo.
@@ -62,12 +65,19 @@ health() {
     systemctl list-units --state=failed --plain --no-legend --no-pager 2>/dev/null | awk '{print $1}'
 }
 
+vm_hardware() {
+    echo "### vm-hardware"
+    cat /var/lib/deevnet-vm-hardware/vms.json 2>/dev/null || echo "missing"
+    echo
+}
+
 case "$check" in
     ""|updates) updates ;;
     health)     health ;;
+    vm-hardware) vm_hardware ;;
     *)
         echo "### error"
-        echo "unknown check; this key answers: updates, health"
+        echo "unknown check; this key answers: updates, health, vm-hardware"
         exit 2
         ;;
 esac

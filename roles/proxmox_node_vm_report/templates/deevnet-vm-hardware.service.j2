@@ -1,0 +1,8 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Write this hypervisor's VMs' hardware for the health watcher (ADR-0046)
+After=pve-cluster.service
+
+[Service]
+Type=oneshot
+ExecStart={{ proxmox_node_vm_report_script }} {{ proxmox_node_vm_report_file }}

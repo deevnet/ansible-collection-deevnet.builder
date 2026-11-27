@@ -95,3 +95,7 @@
     # own waiting updates; the watcher records them without mailing.
     - role: update_check
       tags: [update_check]
+    # Each VM's hardware for the health watcher's VM hardware profile check
+    # (ADR-0046): written by root, read through the pinned check above.
+    - role: proxmox_node_vm_report
+      tags: [update_check, vm_report]

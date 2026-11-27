@@ -13,6 +13,15 @@
   "probes": {{ (health_watch_probes + (health_watch_omada_probe if health_watch_omada_host else [])) | to_json }},
   "boot_grace": {{ health_watch_boot_grace | int }},
   "threshold": {{ health_watch_threshold | int }},
+  "lib_dir": {{ health_watch_lib_dir | to_json }},
+{% if deevnet_vm_profile is defined %}
+  "vm_profile": {
+    "hosts": {{ health_watch_vm_profile_hosts | to_json }},
+    "profile": {{ deevnet_vm_profile | to_json }},
+    "exceptions": {{ health_watch_vm_profile_exceptions | to_json }},
+    "max_age": {{ health_watch_vm_profile_max_age | int }}
+  },
+{% endif %}
   "state": {{ health_watch_state | to_json }},
   "report_dir": {{ health_watch_report_dir | to_json }}
 }

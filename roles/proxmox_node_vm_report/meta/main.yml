@@ -1,0 +1,7 @@
+---
+galaxy_info:
+  role_name: proxmox_node_vm_report
+  description: Write a hypervisor's VMs' hardware for the health watcher's profile check
+  license: MIT
+  min_ansible_version: "2.14"
+dependencies: []

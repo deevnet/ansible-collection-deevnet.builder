@@ -41,6 +41,17 @@ health_watch_probes:
 health_watch_omada_probe:
   - {name: "Omada controller configured", kind: omada, url: "https://{{ hostvars[health_watch_omada_host]['ansible_host'] | default('') }}:8043/api/info", verify: "{{ site_verify_omada | default(false) }}"}
 
+# The VM hardware profile check (ADR-0046): each hypervisor's VMs, from the
+# file its root timer writes (proxmox_node_vm_report), compared with
+# deevnet_vm_profile and every host's vm_profile_exceptions. A report older
+# than max_age seconds is a problem of its own. The comparison is the
+# collection's module_utils/vm_profile.py, installed in lib_dir.
+health_watch_lib_dir: /usr/local/lib/deevnet-health-watch
+health_watch_vm_profile_hosts: "{{ groups['hypervisors'] | default([]) }}"
+health_watch_vm_profile_exceptions: >-
+  {% set out = {} %}{% for h in groups['all'] %}{% if hostvars[h].vm_profile_exceptions is defined %}{% set _ = out.update({h: hostvars[h].vm_profile_exceptions}) %}{% endif %}{% endfor %}{{ out }}
+health_watch_vm_profile_max_age: 1800
+
 # Where it reports, and the banner that shows what is raised.
 health_watch_report_dir: /srv/health
 health_watch_profile_script: /etc/profile.d/deevnet-health.sh
