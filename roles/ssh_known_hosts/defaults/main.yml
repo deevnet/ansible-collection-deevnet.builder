@@ -1,0 +1,5 @@
+---
+# The site's SSH host keys (CHG-0099), from the inventory: every substrate host
+# by name, FQDN and address. Git is their record; a builder never learns one.
+ssh_known_hosts_src: "{{ site_ssh_known_hosts_file }}"
+ssh_known_hosts_dest: /etc/ssh/ssh_known_hosts

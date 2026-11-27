@@ -1,0 +1,7 @@
+---
+galaxy_info:
+  role_name: ssh_known_hosts
+  description: Install the site's SSH host keys from inventory as the system known_hosts
+  license: MIT
+  min_ansible_version: "2.14"
+dependencies: []

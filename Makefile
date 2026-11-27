@@ -1,4 +1,4 @@
-.PHONY: help default pve-nag deps deps-force build check install-dev install-user rebuild apply list \
+.PHONY: help default host-keys host-keys-install pve-nag deps deps-force build check install-dev install-user rebuild apply list \
         publish clean-deps clean-project deep-clean all bootstrap-auth core-auth \
         update-watch update-watch-now update-watch-show update-watch-dry-run update-watch-ack \
         health-watch health-watch-now health-watch-dry-run \
@@ -20,6 +20,12 @@ default: help
 help:
 	@printf "%s\n" \
 "Targets:" \
+"" \
+"  host-keys LIMIT=<host|group>" \
+"      Scan the hosts' SSH keys into the inventory's known_hosts record, for a pull request" \
+"" \
+"  host-keys-install" \
+"      Install the inventory's known_hosts record on the builders (/etc/ssh/ssh_known_hosts)" \
 "" \
 "  deps" \
 "      Install Galaxy dependency collections at the user level (~/.ansible/collections)" \
@@ -157,6 +163,17 @@ publish: deps install-user
 apply: install-dev
 	@ANSIBLE_COLLECTIONS_PATH="$(PROJECT_COLLECTIONS_PATH):$(USER_COLLECTIONS_PATH)" \
 	  ansible-playbook playbooks/site.yml
+
+# The site's SSH host keys (CHG-0099): scan LIMIT's keys into the inventory's
+# record for a pull request; host-keys-install puts the record on the builders.
+host-keys: install-dev
+	@test -n "$(LIMIT)" || { echo "usage: make host-keys LIMIT=<host|group>" >&2; exit 2; }
+	@ANSIBLE_COLLECTIONS_PATH="$(PROJECT_COLLECTIONS_PATH):$(USER_COLLECTIONS_PATH)" \
+	  ansible-playbook playbooks/host-keys.yml --limit '$(LIMIT)'
+
+host-keys-install: install-dev
+	@ANSIBLE_COLLECTIONS_PATH="$(PROJECT_COLLECTIONS_PATH):$(USER_COLLECTIONS_PATH)" \
+	  ansible-playbook playbooks/site.yml --limit builder --tags host_keys
 
 # ---------- Inspection ----------
 list:
