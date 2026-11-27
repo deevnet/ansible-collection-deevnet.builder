@@ -1,0 +1,18 @@
+---
+- name: Fail early without the site's host keys
+  ansible.builtin.assert:
+    that: ssh_known_hosts_src | default('') | length > 0
+    fail_msg: "site_ssh_known_hosts_file is not set in the inventory"
+    quiet: true
+
+# Every SSH client on the host reads it beside each user's own known_hosts, so
+# a repaved builder knows every host without learning a key again.
+- name: Install the site's host keys
+  ansible.builtin.copy:
+    src: "{{ ssh_known_hosts_src }}"
+    dest: "{{ ssh_known_hosts_dest }}"
+    owner: root
+    group: root
+    mode: "0644"
+    validate: ssh-keygen -l -f %s
+  become: true

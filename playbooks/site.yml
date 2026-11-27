@@ -5,6 +5,10 @@
     # The site root in the OS trust store (ADR-0030 §7), so Ansible, Packer and
     # Terraform on the Builder verify without per-tool CA flags.
     - site_trust
+    # Every substrate host's SSH keys, from inventory (CHG-0099), so the
+    # operator's scripts check the host they reach, a repaved Builder included.
+    - role: ssh_known_hosts
+      tags: [host_keys]
 
 # Before the watchers: they give the operator's account the discovery reports,
 # and on a freshly installed Builder that account does not exist until here.

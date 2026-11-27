@@ -1,0 +1,57 @@
+---
+# Scan hosts' SSH keys into the site's known_hosts record in the inventory
+# (CHG-0099), for a pull request there. Run after a host is rebuilt or its keys
+# are replaced; a changed key is a host's identity changing, so the diff and the
+# fingerprints this prints are what review checks. It writes only the
+# inventory's file; the builders get it from the ssh_known_hosts role.
+#
+#   make host-keys LIMIT=dv02prv001v01
+- name: Scan host keys into the site record
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Refuse a run without --limit
+      ansible.builtin.assert:
+        that: ansible_limit is defined
+        fail_msg: "Name the hosts: make host-keys LIMIT=<host>"
+        quiet: true
+      run_once: true
+
+    # One type at a time: some devices (the switch) answer only a scan for the
+    # one type they have.
+    - name: Scan the host's keys
+      ansible.builtin.command:
+        argv: [ssh-keyscan, -T, "5", -t, "{{ item }}", "{{ ansible_host }}"]
+      loop: [ed25519, ecdsa, rsa]
+      register: host_keys_scan
+      changed_when: false
+      failed_when: false
+      delegate_to: localhost
+
+    - name: Keep what the host served, under its three names
+      ansible.builtin.set_fact:
+        host_keys_entry:
+          names: ["{{ inventory_hostname }}", "{{ deevnet_fqdn }}", "{{ ansible_host }}"]
+          scan: "{{ host_keys_scan.results | map(attribute='stdout') | join('\n') }}"
+
+    - name: Merge what each host served into the record
+      ansible.builtin.command:
+        argv: ["{{ playbook_dir }}/../scripts/host-keys-merge", "{{ site_ssh_known_hosts_file }}"]
+        stdin: >-
+          {{ dict(ansible_play_hosts | zip(ansible_play_hosts | map('extract', hostvars, 'host_keys_entry'))) | to_json }}
+      register: host_keys_merge
+      changed_when: "'new' in host_keys_merge.stdout or 'CHANGED' in host_keys_merge.stdout"
+      failed_when: host_keys_merge.rc not in [0, 1]
+      delegate_to: localhost
+      run_once: true
+
+    - name: Say what changed
+      ansible.builtin.debug:
+        msg: "{{ host_keys_merge.stdout_lines }}"
+      run_once: true
+
+    - name: Fail if a host served no key
+      ansible.builtin.fail:
+        msg: "A host served no key; its lines are kept. Is it up, and is SSH open to the Builder?"
+      when: host_keys_merge.rc == 1
+      run_once: true

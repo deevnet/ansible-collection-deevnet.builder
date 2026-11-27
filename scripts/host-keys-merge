@@ -1,0 +1,69 @@
+#!/usr/bin/python3 -I
+"""Merge scanned SSH host keys into the site's known_hosts record (CHG-0099).
+
+Reads JSON on stdin: {host: {"names": [name, fqdn, address], "scan": "<ssh-keyscan output>"}}.
+Each host's lines are replaced by what it served, under all three names; every
+other line stays. A host that served no key keeps its lines and is reported,
+so a host that is down is never dropped from the record. Prints, per host,
+new / changed / unchanged / NO KEY, with fingerprints for what is new.
+"""
+import base64
+import hashlib
+import json
+import sys
+
+ORDER = {"ssh-ed25519": 0, "ecdsa-sha2-nistp256": 1, "ssh-rsa": 2}
+
+
+def fingerprint(key):
+    digest = hashlib.sha256(base64.b64decode(key)).digest()
+    return "SHA256:" + base64.b64encode(digest).decode().rstrip("=")
+
+
+def main():
+    path = sys.argv[1]
+    scans = json.load(sys.stdin)
+    with open(path, encoding="utf-8") as f:
+        lines = f.read().splitlines()
+    header = [l for l in lines if l.startswith("#") or not l.strip()]
+    entries = [l for l in lines if l.strip() and not l.startswith("#")]
+
+    def host_of(line):
+        return line.split()[0].split(",")[0]
+
+    failed = False
+    for host, s in sorted(scans.items()):
+        keys = set()
+        for l in s["scan"].splitlines():
+            p = l.split()
+            if len(p) >= 3 and not l.startswith("#"):
+                keys.add((p[1], p[2]))
+        old = {(l.split()[1], l.split()[2]) for l in entries if host_of(l) == host}
+        if not keys:
+            print(f"{host}: NO KEY served; its lines are kept")
+            failed = True
+            continue
+        names = ",".join(s["names"])
+        entries = [l for l in entries if host_of(l) != host]
+        entries += [f"{names} {t} {k}" for t, k in keys]
+        if not old:
+            state = "new"
+        elif old == keys:
+            state = "unchanged"
+        else:
+            state = "CHANGED"
+        print(f"{host}: {state}")
+        if state != "unchanged":
+            for t, k in sorted(keys - old, key=lambda x: ORDER.get(x[0], 9)):
+                print(f"  + {t} {fingerprint(k)}")
+            for t, k in sorted(old - keys, key=lambda x: ORDER.get(x[0], 9)):
+                print(f"  - {t} {fingerprint(k)}")
+
+    entries.sort(key=lambda l: (host_of(l), ORDER.get(l.split()[1], 9)))
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("\n".join(header).rstrip("\n") + "\n" + "\n".join(entries) + "\n")
+    sys.exit(1 if failed else 0)
+
+
+if __name__ == "__main__":
+    main()
