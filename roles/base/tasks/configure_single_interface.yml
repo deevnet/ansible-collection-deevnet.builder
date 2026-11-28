@@ -99,9 +99,19 @@
          'ipv4.method:manual',
          'ipv4.addresses:' ~ _iface_ip ~ '/' ~ _iface_prefix,
          'ipv4.gateway:' ~ _iface_gateway]
-        + (['ipv4.dns:' ~ _iface_dns_servers] if _iface_dns_servers else [])
-        + (['ipv4.dns-search:' ~ _iface_dns_search] if _iface_dns_search else [])
+        + (['ipv4.dns:' ~ (_iface_dns_servers | regex_replace('[ ,]+', ','))] if _iface_dns_servers else [])
+        + (['ipv4.dns-search:' ~ (_iface_dns_search | regex_replace('[ ,]+', ','))] if _iface_dns_search else [])
+        + ['ipv4.routes:' ~ (_iface_routes | join(', '))]
       }}
+  # nmcli prints a list of DNS servers or search domains comma-separated, where
+  # inventory may write it with spaces, so both are compared comma-separated:
+  # compared as written, every static host's connection was rewritten and
+  # reactivated on every run.
+  #
+  # ipv4.routes is compared too (CHG-0102), as nmcli prints it: "net gw, net gw",
+  # the same join the modify below writes. Without it a route added or removed in
+  # inventory never reached a host whose other settings already matched. A host
+  # with no routes compares "ipv4.routes:" with nmcli's empty value.
   when: _iface_ip != 'dhcp'
 
 - name: Create static connection for {{ _discovered_iface }}
